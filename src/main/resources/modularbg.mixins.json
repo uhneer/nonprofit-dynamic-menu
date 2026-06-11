@@ -1,0 +1,13 @@
+{
+  "required": true,
+  "package": "dev.nonprofit.modularbg.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "MixinTitleScreenReplace",
+    "MixinSelectWorldScreen",
+    "MixinLoadingScreens"
+  ],
+  "injectors": {
+    "defaultRequire": 0
+  }
+}

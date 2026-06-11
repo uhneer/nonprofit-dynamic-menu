@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "id": "nonprofit-modular-backgrounds",
+  "version": "${version}",
+  "name": "Nonprofit's Dynamic Menu",
+  "description": "A fully self-contained menu overhaul: custom title screen with two layouts, per-background skins (image/GIF/MP4 with a built-in video engine), custom fonts (own rasterizer, TTF and OTF), per-slot icons, menu music, and themed buttons and sliders. No dependency mods.",
+  "authors": ["nonprofit"],
+  "contact": { "homepage": "https://github.com/uhneer/nonprofit-dynamic-menu", "sources": "https://github.com/uhneer/nonprofit-dynamic-menu" },
+  "license": "MIT",
+
+  "environment": "client",
+
+  "entrypoints": {
+    "client": [
+      "dev.nonprofit.modularbg.ModularBackgrounds"
+    ]
+  },
+
+  "mixins": [
+    "modularbg.mixins.json"
+  ],
+
+  "depends": {
+    "fabricloader": ">=0.15.0",
+    "fabric-api": "*",
+    "minecraft": "~1.21.11",
+    "java": ">=21"
+  }
+}
