@@ -6,12 +6,16 @@ Out of the box you get an animated grass field video with the nDM brand bar. Fro
 
 ## What it does
 
-- **Custom title screen**, built from scratch. Two layouts per background: a left column (the classic) or a centered showcase with the brand art front and center. Slide-in animations, hover highlights, readability gradients.
+- **Custom title screen**, built from scratch. Two base layouts per background (left column or centered showcase), and on top of that you can drag any element anywhere you want, with snap-to-grid. Rename any button, hide any button, resize any text or icon. Slide-in animations, hover highlights, readability gradients.
+- **Edit everything in place.** Click Edit in the carousel and you are standing on a live preview of that skin: drag things to move them, click an icon to swap it, click a text to change its font. No settings tree to dig through.
+- **A built-in font database and icon database.** Browse the full Google Fonts catalog (1,800+ families, all open source) with live previews rendered in each actual font, and 15,000+ open source icons (Tabler, Lucide, Material Design Icons) served from nDM's own free CDN. One click imports and assigns. No accounts, no API keys. Attribution shows as a hover tooltip on the slot.
 - **MP4 video backgrounds with a built-in video engine.** This is the headline feature. nDM ships its own pure-Java video pipeline: the clip is decoded once into a frame cache, then playback derives the frame to show from a monotonic clock, which makes looping seamless and the speed exact by construction. Full source resolution, no downscaling. If the MP4 has an audio track, it gets extracted and looped automatically, respecting your music volume slider. No ffmpeg binaries, no WaterMedia, no native libraries.
 - **A built-in font engine.** Drop in any .ttf or .otf and nDM rasterizes it itself into a high-resolution glyph atlas, normalized so your font renders at the same visual size as Minecraft's own. Per-slot font assignment (PLAY, Multiplayer, Options, Mods, version tag) with a size nudge on every slot. OpenType/CFF fonts work, which vanilla's own font loader rejects.
 - **Per-background icons and brand art.** Every button icon and the brand bar can be swapped per background, with a click-to-edit overlay that shows the real title screen.
 - **Menu music.** Assign a looping OGG to any background. The MP4's own audio plays when no track is assigned.
-- **Skins.** Export any background with all its icons, fonts, music, and layout as one zip. Import someone else's with one click. The carousel previews each skin as a full miniature title screen, not just a wallpaper thumbnail.
+- **Skins.** Export any background with all its icons, fonts (the actual font files), music, labels, positions, and layout as one zip. Import someone else's with one click. The carousel previews each skin as a full miniature title screen, not just a wallpaper thumbnail.
+- **Shuffle mode.** One toggle and you get a different background every launch.
+- **A real mods screen built in.** Searchable, filterable mod list with icons, descriptions, and enable/disable per mod, even without ModMenu installed.
 - **Whole-menu theming.** Translucent buttons and sliders, your background (blurred and dimmed for readability) behind the options screen, world selection, world creation, and loading screens. The menus feel like one continuous place instead of a skin taped onto the front door.
 - **GIF and APNG-style animation** for backgrounds, with focus throttling: when the window loses focus, animation and audio pause to zero cost.
 
@@ -30,7 +34,7 @@ nDM's position: MIT licensed and fully open, one self-contained jar, native MP4 
 ## Install
 
 1. Fabric Loader 0.15+ with Fabric API on Minecraft 1.21.11.
-2. Drop `nDM-1.0.0+1.21.11.jar` into your mods folder.
+2. Drop `nDM-1.2.0+1.21.11.jar` into your mods folder.
 3. Launch. The default grass setup appears on the title screen. Open Options, then the Backgrounds button (bottom left) to start customizing.
 
 Adding a background: click the + slot in the carousel and pick a .png, .jpg, .gif, or .mp4. MP4s do a one-time "bake" with a progress readout, then play instantly forever after (the cache lives next to your backgrounds in `config/nonprofit-backgrounds/.video-cache`).

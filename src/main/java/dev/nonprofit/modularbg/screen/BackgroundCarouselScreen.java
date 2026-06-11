@@ -8,6 +8,7 @@ import net.minecraft.client.gl.RenderPipelines;
 import net.minecraft.client.gui.Click;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
+import net.minecraft.client.gui.tooltip.Tooltip;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.font.TextRenderer;
 import net.minecraft.text.MutableText;
@@ -17,13 +18,14 @@ import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * Backgrounds carousel: Default → ◄/► through a live preview of each background → a final black "＋"
- * slot (click it to add an image/MP4; it can't be selected until you do). "Edit" opens the unified
- * per-background menu (icons / fonts / music / export / delete); "Replace Image" swaps the picture
- * keeping everything else; "Import .zip" adds a shared package; "Save & Exit" selects whatever you're
- * focused on and leaves (all per-background edits are already saved as you make them).
+ * slot (click it to add an image/MP4). EVERY action button under the preview applies to the
+ * background being PREVIEWED (not the selected one): Edit opens the in-place edit overlay, plus
+ * Replace / Rename / Export / Delete right here. "Shuffle" picks a random background each launch.
+ * "Save & Exit" selects whatever you're looking at and leaves.
  */
 public class BackgroundCarouselScreen extends Screen {
 
@@ -31,6 +33,8 @@ public class BackgroundCarouselScreen extends Screen {
     private List<String> files;
     private int idx;
     private int px, py, pw, ph;
+    private int deleteStage = 0;
+    private ButtonWidget deleteBtn;
 
     public BackgroundCarouselScreen(Screen parent) {
         super(Text.literal("Backgrounds"));
@@ -51,6 +55,10 @@ public class BackgroundCarouselScreen extends Screen {
     protected void init() {
         files = NonprofitBackgrounds.available();
         idx = Math.max(0, Math.min(idx, addIndex()));
+        deleteStage = 0;
+
+        // Every per-background edit anywhere in this flow targets the PREVIEWED background.
+        IconStore.setEditTarget(isAdd() ? null : currentName());
 
         pw = Math.max(220, (int) (this.width * 0.5f));
         ph = pw * 9 / 16;
@@ -66,14 +74,20 @@ public class BackgroundCarouselScreen extends Screen {
         int row1 = py + ph + 10;
         if (!isAdd()) {
             if (isDefault()) {
-                addDrawableChild(ButtonWidget.builder(Text.literal("Edit"),
-                        b -> this.client.setScreen(new BackgroundEditMenuScreen(this, "")))
+                addDrawableChild(ButtonWidget.builder(Text.literal("✎ Edit"),
+                        b -> this.client.setScreen(new EditOverlayScreen(this, "")))
                         .dimensions(cx - 55, row1, 110, 20).build());
             } else {
-                addDrawableChild(ButtonWidget.builder(Text.literal("Edit"),
-                        b -> this.client.setScreen(new BackgroundEditMenuScreen(this, currentName())))
-                        .dimensions(cx - 115, row1, 110, 20).build());
-                addDrawableChild(ButtonWidget.builder(Text.literal("Replace Image"), b -> {
+                int bw = 66, gap = 4;
+                int x0 = cx - (bw * 5 + gap * 4) / 2;
+                var edit = ButtonWidget.builder(Text.literal("✎ Edit"),
+                        b -> this.client.setScreen(new EditOverlayScreen(this, currentName())))
+                        .dimensions(x0, row1, bw, 20).build();
+                edit.setTooltip(Tooltip.of(Text.literal(
+                        "Edit this skin in place: drag elements to move them, click an icon or a text to change it")));
+                addDrawableChild(edit);
+
+                var rep = ButtonWidget.builder(Text.literal("Replace"), b -> {
                     String picked = NonprofitBackgrounds.openFilePicker();
                     if (picked != null) {
                         String n = NonprofitBackgrounds.replaceImage(currentName(), picked);
@@ -82,7 +96,38 @@ public class BackgroundCarouselScreen extends Screen {
                         idx = i >= 0 ? i + 1 : idx;
                         clearAndInit();
                     }
-                }).dimensions(cx + 5, row1, 110, 20).build());
+                }).dimensions(x0 + (bw + gap), row1, bw, 20).build();
+                rep.setTooltip(Tooltip.of(Text.literal(
+                        "Swap the image/video and keep all the icons, fonts and music")));
+                addDrawableChild(rep);
+
+                addDrawableChild(ButtonWidget.builder(Text.literal("Rename"), b -> {
+                    String name = currentName();
+                    String nn = org.lwjgl.util.tinyfd.TinyFileDialogs.tinyfd_inputBox(
+                            "Rename background", "New name (the file extension is kept):",
+                            name.replaceAll("\\.[^.]+$", ""));
+                    if (nn != null && !nn.isBlank()) {
+                        String renamed = NonprofitBackgrounds.renameBackground(name, nn.trim());
+                        files = NonprofitBackgrounds.available();
+                        int i = renamed == null ? -1 : files.indexOf(renamed);
+                        idx = i >= 0 ? i + 1 : idx;
+                        clearAndInit();
+                    }
+                }).dimensions(x0 + (bw + gap) * 2, row1, bw, 20).build());
+
+                addDrawableChild(ButtonWidget.builder(Text.literal("Export"), b -> {
+                    String dest = BackgroundPackage.pickExportZip(currentName().replaceAll("\\.[^.]+$", ""));
+                    if (dest != null) BackgroundPackage.export(currentName(), dest);
+                }).dimensions(x0 + (bw + gap) * 3, row1, bw, 20).build());
+
+                boolean canDelete = files.size() >= 2;
+                deleteBtn = ButtonWidget.builder(Text.literal("§cDelete"), b -> onDelete())
+                        .dimensions(x0 + (bw + gap) * 4, row1, bw, 20).build();
+                deleteBtn.active = canDelete;
+                if (!canDelete)
+                    deleteBtn.setTooltip(Tooltip.of(Text.literal(
+                            "Add a second background first — you can't delete your only one")));
+                addDrawableChild(deleteBtn);
             }
         }
 
@@ -96,11 +141,36 @@ public class BackgroundCarouselScreen extends Screen {
                 idx = i >= 0 ? i + 1 : 0;
                 clearAndInit();
             }
-        }).dimensions(cx - 115, by, 110, 20).build());
+        }).dimensions(cx - 169, by, 110, 20).build());
+
+        var shuffle = ButtonWidget.builder(shuffleLabel(), b -> {
+            NonprofitBackgrounds.toggleShuffle();
+            b.setMessage(shuffleLabel());
+        }).dimensions(cx - 55, by, 110, 20).build();
+        shuffle.setTooltip(Tooltip.of(Text.literal(
+                "Pick a random background every time the game starts")));
+        addDrawableChild(shuffle);
+
         addDrawableChild(ButtonWidget.builder(Text.literal("Save & Exit"), b -> {
             if (!isAdd()) NonprofitBackgrounds.select(currentName());
             this.close();
-        }).dimensions(cx + 5, by, 110, 20).build());
+        }).dimensions(cx + 59, by, 110, 20).build());
+    }
+
+    private static Text shuffleLabel() {
+        return Text.literal("Shuffle: " + (NonprofitBackgrounds.isShuffle() ? "§aon" : "§7off"));
+    }
+
+    private void onDelete() {
+        deleteStage++;
+        if (deleteStage == 1) deleteBtn.setMessage(Text.literal("§eSure? (1/2)"));
+        else if (deleteStage == 2) deleteBtn.setMessage(Text.literal("§4Really? (2/2)"));
+        else {
+            NonprofitBackgrounds.deleteBackground(currentName());
+            files = NonprofitBackgrounds.available();
+            idx = Math.max(0, Math.min(idx, addIndex()));
+            clearAndInit();
+        }
     }
 
     @Override
@@ -130,11 +200,7 @@ public class BackgroundCarouselScreen extends Screen {
             ctx.drawCenteredTextWithShadow(tr, Text.literal("§7click to add background (image, gif, mp4)"),
                     px + pw / 2, py + ph - 14, 0xFFFFFFFF);
         } else {
-            // Full title-screen mockup for this skin: its background + gradient + every button with
-            // that skin's own font and icon. (MP4s only play live once selected, so an unselected
-            // video previews with a black backdrop but the rest of the UI still shows.)
             drawMockup(ctx, isDefault() ? "" : currentName(), px, py, pw, ph);
-            // One-time MP4 bake progress / failure, drawn over the preview while it runs.
             String vs = NonprofitBackgrounds.videoStatusFor(currentName());
             if (vs != null)
                 ctx.drawCenteredTextWithShadow(tr, Text.literal("§e⏳ " + vs),
@@ -147,14 +213,10 @@ public class BackgroundCarouselScreen extends Screen {
                 this.width / 2, py + ph + 4 + 60, 0xFFFFFFFF);
     }
 
-    // Layout mirrors ModularTitleScreen (measurements aren't copyrightable; code is original).
-    private static final int M_LEFT = 20, M_COL_W = 120, M_GAP = 4, M_H_VER = 50, M_H_PLAY = 45, M_H_ROW = 20;
-
     /**
-     * Draws a faithful, scaled-down title screen for {@code name} into the rect: the skin's
-     * background + readability gradients + brand art + every menu row with that skin's per-slot icon
-     * and font, in that skin's chosen layout ("left" column or "center"). The virtual canvas is the
-     * live window size, uniformly scaled to the rect width and scissor-clipped.
+     * A faithful, scaled-down title screen for {@code name}: its background + gradients + brand +
+     * every visible element with that skin's per-slot icon, font, label, sizes and drag positions —
+     * all through {@link TitleLayout}, so it always matches the real thing.
      */
     private void drawMockup(DrawContext ctx, String name, int rx, int ry, int rw, int rh) {
         TextRenderer tr = this.textRenderer;
@@ -168,13 +230,12 @@ public class BackgroundCarouselScreen extends Screen {
         m.translate((float) rx, (float) ry);
         m.scale(s, s);
 
-        // Background frame (or black for default / not-yet-playing video).
         Identifier frame = (name == null || name.isEmpty()) ? null : NonprofitBackgrounds.previewFrame(name);
         if (frame != null) ctx.drawTexture(RenderPipelines.GUI_TEXTURED, frame, 0, 0, 0f, 0f, VW, VH, VW, VH, 0xFFFFFFFF);
         else ctx.fill(0, 0, VW, VH, 0xFF000000);
 
-        boolean center = "center".equals(FontStore.layoutFor(bg));
-        if (center) {
+        String layout = FontStore.layoutFor(bg);
+        if ("center".equals(layout)) {
             int th = Math.max(1, VH / 4);
             for (int y = 0; y < th; y++) {
                 int a = (int) ((1f - y / (float) th) * 95f);
@@ -185,76 +246,57 @@ public class BackgroundCarouselScreen extends Screen {
                 int a = (int) ((y / (float) bh) * 110f);
                 if (a > 0) ctx.fill(0, VH - bh + y, VW, VH - bh + y + 1, a << 24);
             }
-            int brandW = 192, brandH = 80, playW = 150, colW = 110, colGap = 12;
-            int total = brandH + 12 + M_H_PLAY + 10 + M_H_ROW * 2 + M_GAP;
-            int top = Math.max(16, (VH - total) / 2 - 10);
-            int cx = VW / 2;
-            Identifier brand = IconStore.resolved(bg, "version");
-            if (brand != null)
-                ctx.drawTexture(RenderPipelines.GUI_TEXTURED, brand, cx - brandW / 2, top, 0f, 0f,
-                        brandW, brandH, brandW, brandH, 0xFFFFFFFF);
-            int yPlay = top + brandH + 12;
-            mockRowAt(ctx, tr, bg, "play", "PLAY", cx - playW / 2, yPlay, M_H_PLAY, 35, 1.8f);
-            int yGrid = yPlay + M_H_PLAY + 10;
-            int lx = cx - colGap / 2 - colW, rxx = cx + colGap / 2;
-            mockRowAt(ctx, tr, bg, "multiplayer", "Multiplayer", lx, yGrid, M_H_ROW, 12, 1.0f);
-            mockRowAt(ctx, tr, bg, "options", "Options", lx, yGrid + M_H_ROW + M_GAP, M_H_ROW, 12, 1.0f);
-            mockRowAt(ctx, tr, bg, "mods", "Mods", rxx, yGrid, M_H_ROW, 12, 1.0f);
-            mockRowAt(ctx, tr, bg, "close", "Quit", rxx, yGrid + M_H_ROW + M_GAP, M_H_ROW, 12, 1.0f);
         } else {
             int gw = Math.max(1, VW / 3);
             for (int x = 0; x < gw; x++) {
                 int a = (int) ((1f - x / (float) gw) * 100f);
                 if (a > 0) ctx.fill(x, 0, x + 1, VH, a << 24);
             }
-            int total = M_H_VER + M_H_PLAY + M_H_ROW * 3 + M_GAP * 4;
-            int top = (VH - total) / 2;
-            int yPlay = top + M_H_VER + M_GAP;
-            int yMp = yPlay + M_H_PLAY + M_GAP;
-            int yOpt = yMp + M_H_ROW + M_GAP;
-            int yMods = yOpt + M_H_ROW + M_GAP;
-
-            Identifier brand = IconStore.resolved(bg, "version");
-            if (brand != null)
-                ctx.drawTexture(RenderPipelines.GUI_TEXTURED, brand, M_LEFT, top, 0f, 0f, M_COL_W, M_H_VER, M_COL_W, M_H_VER, 0xFFFFFFFF);
-
-            mockRowAt(ctx, tr, bg, "play", "PLAY", M_LEFT, yPlay, M_H_PLAY, 35, 1.8f);
-            mockRowAt(ctx, tr, bg, "multiplayer", "Multiplayer", M_LEFT, yMp, M_H_ROW, 12, 1.0f);
-            mockRowAt(ctx, tr, bg, "options", "Options", M_LEFT, yOpt, M_H_ROW, 12, 1.0f);
-            mockRowAt(ctx, tr, bg, "mods", "Mods", M_LEFT, yMods, M_H_ROW, 12, 1.0f);
-
-            // Quit ✕ top-right (left layout only).
-            Identifier close = IconStore.resolved(bg, "close");
-            if (close != null)
-                ctx.drawTexture(RenderPipelines.GUI_TEXTURED, close, VW - 24, 8, 0f, 0f, 16, 16, 16, 16, 0xFFFFFFFF);
         }
 
-        // Version tag, bottom-left, 0.75 scale, versiontag font + size.
-        MutableText ver = Text.literal("Minecraft 1.21.11 © Mojang AB");
-        Identifier vf = FontStore.fontFor(bg, "versiontag");
-        if (vf != null) ver = ver.setStyle(Style.EMPTY.withFont(new StyleSpriteSource.Font(vf)));
-        float vsc = 0.75f * FontStore.sizeFor(bg, "versiontag");
-        m.pushMatrix();
-        m.scale(vsc, vsc);
-        ctx.drawTextWithShadow(tr, ver, (int) (10 / vsc), (int) ((VH - 10) / vsc), 0xCCFFFFFF);
-        m.popMatrix();
+        Map<String, TitleLayout.Box> boxes = TitleLayout.compute(bg, VW, VH);
+        for (var e : boxes.entrySet()) {
+            String slot = e.getKey();
+            if (FontStore.hiddenFor(bg, slot)) continue;
+            TitleLayout.Box b = e.getValue();
+            switch (slot) {
+                case "version" -> {
+                    Identifier brand = IconStore.resolved(bg, "version");
+                    if (brand != null)
+                        ctx.drawTexture(RenderPipelines.GUI_TEXTURED, brand, b.x(), b.y(), 0f, 0f,
+                                b.w(), b.h(), b.w(), b.h(), 0xFFFFFFFF);
+                }
+                case "versiontag" -> {
+                    MutableText ver = Text.literal("Minecraft 1.21.11 © Mojang AB");
+                    Identifier vf = FontStore.fontFor(bg, "versiontag");
+                    if (vf != null) ver = ver.setStyle(Style.EMPTY.withFont(new StyleSpriteSource.Font(vf)));
+                    float vsc = b.fontScale() * FontStore.sizeFor(bg, "versiontag");
+                    m.pushMatrix();
+                    m.translate((float) b.x(), (float) b.y());
+                    m.scale(vsc, vsc);
+                    ctx.drawTextWithShadow(tr, ver, 0, 0, 0xCCFFFFFF);
+                    m.popMatrix();
+                }
+                default -> {
+                    String label = FontStore.labelFor(bg, slot, TitleLayout.defaultLabel(slot, layout));
+                    Identifier tex = IconStore.resolved(bg, slot);
+                    int is = Math.max(4, Math.round(b.iconSize() * FontStore.iconSizeFor(bg, slot)));
+                    int ix = label.isEmpty() ? b.x() + (b.w() - is) / 2 : b.x() + 4;
+                    int iy = b.y() + (b.h() - is) / 2;
+                    int iconOffset = 0;
+                    if (tex != null) {
+                        ctx.drawTexture(RenderPipelines.GUI_TEXTURED, tex, ix, iy, 0f, 0f, is, is, is, is, 0xFFFFFFFF);
+                        iconOffset = is + 8;
+                    }
+                    if (!label.isEmpty())
+                        mockText(ctx, tr, bg, slot, label, b.x() + 4 + iconOffset,
+                                b.y() + (b.h() - (int) (8 * b.fontScale())) / 2, b.fontScale());
+                }
+            }
+        }
 
         m.popMatrix();
         ctx.disableScissor();
-    }
-
-    /** One menu row in the mockup at an explicit x: per-skin icon + label in the skin's font/size. */
-    private void mockRowAt(DrawContext ctx, TextRenderer tr, String bg, String slot, String label,
-                           int x, int y, int h, int iconSize, float fontScale) {
-        Identifier tex = IconStore.resolved(bg, slot);
-        int iconOffset = 0;
-        if (tex != null) {
-            int is = Math.max(4, Math.round(iconSize * FontStore.iconSizeFor(bg, slot)));
-            ctx.drawTexture(RenderPipelines.GUI_TEXTURED, tex, x + 4, y + (h - is) / 2,
-                    0f, 0f, is, is, is, is, 0xFFFFFFFF);
-            iconOffset = is + 8;
-        }
-        mockText(ctx, tr, bg, slot, label, x + 4 + iconOffset, y + (h - (int) (8 * fontScale)) / 2, fontScale);
     }
 
     /** Draws scaled label text in a skin's per-slot font + size (matches MenuButton's styling). */
@@ -296,6 +338,7 @@ public class BackgroundCarouselScreen extends Screen {
 
     @Override
     public void close() {
+        IconStore.setEditTarget(null);
         NonprofitBackgrounds.reload();
         this.client.setScreen(parent);
     }

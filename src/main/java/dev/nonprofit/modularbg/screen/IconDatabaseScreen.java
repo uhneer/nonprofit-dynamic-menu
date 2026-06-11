@@ -34,16 +34,21 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
- * In-game icon database: 6,000+ open source icons (Tabler, MIT) rendered white-on-transparent and
- * served from nDM's own free CDN (jsDelivr over the uhneer/ndm-assets repo). Searchable grid with
- * outline/filled filters; thumbnails stream in as you scroll; clicking one installs it as the icon
- * for the slot being edited. The search box is prefilled with the slot's name. No API keys.
+ * In-game icon database: 15,000+ open source icons (Tabler MIT, Lucide ISC, Material Design Icons
+ * Apache 2.0) rendered white-on-transparent and served from nDM's own free CDN (jsDelivr over the
+ * uhneer/ndm-assets repo). Searchable grid with per-set filter chips; thumbnails stream in as you
+ * scroll; clicking one installs it as the icon for the slot being edited. No API keys.
  */
 public class IconDatabaseScreen extends Screen {
 
     private static final String CDN = "https://cdn.jsdelivr.net/gh/uhneer/ndm-assets@main/icons/";
-    private static final String[] SETS = { "All", "Outline", "Filled" };
     private static final int CELL = 36, PAD = 6;
+
+    /** Chip display names per index prefix; chips appear in this order when the set exists. */
+    private static final String[][] SET_NAMES = {
+            { "outline", "Tabler" }, { "filled", "Tabler Filled" },
+            { "lucide", "Lucide" }, { "mdi", "Material" },
+    };
     private static final HttpClient HTTP = HttpClient.newBuilder()
             .followRedirects(HttpClient.Redirect.NORMAL).connectTimeout(Duration.ofSeconds(10)).build();
 
@@ -60,9 +65,10 @@ public class IconDatabaseScreen extends Screen {
     private volatile boolean importing = false;
 
     private TextFieldWidget search;
-    private int setFilter = 0;
+    private String setFilter = null;                 // index prefix, null = All
+    private List<String[]> sets = new ArrayList<>(); // [prefix, displayName] present in the index
     private double scroll = 0;
-    private final List<int[]> chipBoxes = new ArrayList<>();
+    private final List<Object[]> chipBoxes = new ArrayList<>();   // [x,y,w, prefixOrNull]
 
     public IconDatabaseScreen(Screen parent, String slot) {
         super(Text.literal("Icon Database"));
@@ -74,7 +80,7 @@ public class IconDatabaseScreen extends Screen {
     private void loadIndexAsync() {
         Thread t = new Thread(() -> {
             try {
-                Path cache = NonprofitBackgrounds.getFolder().resolve(".cache").resolve("icons-index.json");
+                Path cache = NonprofitBackgrounds.getFolder().resolve(".cache").resolve("icons-index2.json");   // v2: bumped so existing installs refetch the expanded index
                 String json = null;
                 try {
                     if (Files.exists(cache) && System.currentTimeMillis()
@@ -89,7 +95,21 @@ public class IconDatabaseScreen extends Screen {
                     Files.write(cache, json.getBytes(StandardCharsets.UTF_8));
                 }
                 List<String> list = new ArrayList<>();
-                for (var el : JsonParser.parseString(json).getAsJsonArray()) list.add(el.getAsString());
+                Set<String> prefixes = new HashSet<>();
+                for (var el : JsonParser.parseString(json).getAsJsonArray()) {
+                    String s = el.getAsString();
+                    list.add(s);
+                    int i = s.indexOf('/');
+                    if (i > 0) prefixes.add(s.substring(0, i));
+                }
+                List<String[]> found = new ArrayList<>();
+                for (String[] sn : SET_NAMES) if (prefixes.contains(sn[0])) found.add(sn);
+                for (String p : prefixes) {   // unknown future sets still get a chip
+                    boolean known = false;
+                    for (String[] sn : SET_NAMES) if (sn[0].equals(p)) known = true;
+                    if (!known) found.add(new String[]{ p, p });
+                }
+                sets = found;
                 all = list;
                 MinecraftClient.getInstance().execute(this::refilter);
             } catch (Throwable t2) {
@@ -106,8 +126,7 @@ public class IconDatabaseScreen extends Screen {
         String q = search == null ? "" : search.getText().toLowerCase(Locale.ROOT).trim();
         shown = new ArrayList<>();
         for (String s : all) {
-            if (setFilter == 1 && !s.startsWith("outline/")) continue;
-            if (setFilter == 2 && !s.startsWith("filled/")) continue;
+            if (setFilter != null && !s.startsWith(setFilter + "/")) continue;
             if (!q.isEmpty() && !s.substring(s.indexOf('/') + 1).contains(q)) continue;
             shown.add(s);
         }
@@ -118,9 +137,7 @@ public class IconDatabaseScreen extends Screen {
     protected void init() {
         int cx = this.width / 2, w = Math.min(this.width - 24, 440);
         search = new TextFieldWidget(this.textRenderer, cx - w / 2, 26, w, 18, Text.literal("Search"));
-        search.setPlaceholder(Text.literal("§8Search 6,000+ icons..."));
-        // The slot being edited prefills the query (retype to search for anything else).
-        if (slot != null && search.getText().isEmpty()) search.setText(slot.equals("version") ? "badge" : slot);
+        search.setPlaceholder(Text.literal("§8Search 15,000+ icons..."));
         search.setChangedListener(s -> refilter());
         addDrawableChild(search);
         addDrawableChild(ButtonWidget.builder(Text.literal("Done"), b -> this.close())
@@ -138,7 +155,7 @@ public class IconDatabaseScreen extends Screen {
         super.render(ctx, mouseX, mouseY, delta);
         var tr = this.textRenderer;
         int cx = this.width / 2, w = Math.min(this.width - 24, 440), x = cx - w / 2;
-        ctx.drawCenteredTextWithShadow(tr, Text.literal("Icon Database §8— Tabler Icons, MIT"),
+        ctx.drawCenteredTextWithShadow(tr, Text.literal("Icon Database §8— open source icon sets (MIT / ISC / Apache)"),
                 cx, 10, 0xFFFFFFFF);
 
         // Register thumbnails decoded on the worker (must happen on the render thread).
@@ -154,12 +171,15 @@ public class IconDatabaseScreen extends Screen {
 
         chipBoxes.clear();
         int chipX = x, chipY = 50;
-        for (int i = 0; i < SETS.length; i++) {
-            int cw = tr.getWidth(SETS[i]) + 12;
-            boolean sel = i == setFilter;
+        List<String[]> chips = new ArrayList<>();
+        chips.add(new String[]{ null, "All" });
+        chips.addAll(sets);
+        for (String[] chip : chips) {
+            int cw = tr.getWidth(chip[1]) + 12;
+            boolean sel = chip[0] == null ? setFilter == null : chip[0].equals(setFilter);
             ctx.fill(chipX, chipY, chipX + cw, chipY + 14, sel ? 0xCC2E6B3A : 0x66222230);
-            ctx.drawCenteredTextWithShadow(tr, Text.literal(SETS[i]), chipX + cw / 2, chipY + 3, 0xFFFFFFFF);
-            chipBoxes.add(new int[]{ chipX, chipY, cw, i });
+            ctx.drawCenteredTextWithShadow(tr, Text.literal(chip[1]), chipX + cw / 2, chipY + 3, 0xFFFFFFFF);
+            chipBoxes.add(new Object[]{ chipX, chipY, cw, chip[0] });
             chipX += cw + 6;
         }
 
@@ -226,6 +246,13 @@ public class IconDatabaseScreen extends Screen {
         t.start();
     }
 
+    /** Attribution line per icon set (each is openly licensed; the sidecar shows on hover). */
+    private static String attribution(String name) {
+        if (name.startsWith("lucide/")) return "Lucide, ISC";
+        if (name.startsWith("mdi/")) return "Material Design Icons, Apache 2.0";
+        return "Tabler Icons, MIT";
+    }
+
     private void importIcon(String name) {
         if (importing || slot == null) return;
         importing = true;
@@ -244,7 +271,7 @@ public class IconDatabaseScreen extends Screen {
                             Path about = IconStore.iconsRoot().resolve(IconStore.currentBgKey())
                                     .resolve(slot + ".about");
                             Files.write(about, (name.substring(name.indexOf('/') + 1)
-                                    + " — Tabler Icons, MIT").getBytes(StandardCharsets.UTF_8));
+                                    + " — " + attribution(name)).getBytes(StandardCharsets.UTF_8));
                         } catch (Throwable ignored) { }
                     }
                     try { Files.deleteIfExists(tmp); } catch (Throwable ignored) { }
@@ -265,9 +292,10 @@ public class IconDatabaseScreen extends Screen {
     @Override
     public boolean mouseClicked(Click click, boolean doubled) {
         int mx = (int) click.x(), my = (int) click.y();
-        for (int[] c : chipBoxes) {
-            if (mx >= c[0] && mx < c[0] + c[2] && my >= c[1] && my < c[1] + 14) {
-                setFilter = c[3];
+        for (Object[] c : chipBoxes) {
+            int x = (int) c[0], y = (int) c[1], w = (int) c[2];
+            if (mx >= x && mx < x + w && my >= y && my < y + 14) {
+                setFilter = (String) c[3];
                 refilter();
                 return true;
             }

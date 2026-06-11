@@ -16,6 +16,8 @@ import net.minecraft.text.StyleSpriteSource;
 import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
 
+import java.util.Map;
+
 /**
  * Nonprofit's Dynamic Menu — original from-scratch title screen.
  *
@@ -29,12 +31,10 @@ import net.minecraft.util.Identifier;
  */
 public class ModularTitleScreen extends Screen {
 
-    // Left layout geometry.
-    private static final int LEFT = 20, COL_W = 120, GAP = 4;
-    private static final int H_VER = 50, H_PLAY = 45, H_ROW = 20;
-
     private String layout = "left";
     private int brandX, brandY, brandW, brandH;
+    private boolean brandHidden, versionHidden;
+    private TitleLayout.Box versionBox;
     private float brandOffsetX = -30f, brandOpacity = 0f;
 
     private static int modCount = -1;
@@ -59,74 +59,38 @@ public class ModularTitleScreen extends Screen {
 
     @Override
     protected void init() {
+        var c = this.client;
         layout = FontStore.layout();
-        if ("center".equals(layout)) initCenter();
-        else initLeft();
-    }
+        String bg = IconStore.currentBgKey();
+        var boxes = TitleLayout.compute(bg, this.width, this.height);
 
-    private void initLeft() {
-        var c = this.client;
-        int total = H_VER + H_PLAY + H_ROW * 3 + GAP * 4;
-        int top = (this.height - total) / 2;
+        TitleLayout.Box vb = boxes.get("version");
+        brandX = vb.x(); brandY = vb.y(); brandW = vb.w(); brandH = vb.h();
+        brandHidden = FontStore.hiddenFor(bg, "version");
+        versionBox = boxes.get("versiontag");
+        versionHidden = FontStore.hiddenFor(bg, "versiontag");
 
-        brandX = LEFT;
-        brandY = top;
-        brandW = COL_W;
-        brandH = H_VER;
-        int yPlay = top + H_VER + GAP;
-        int yMp   = yPlay + H_PLAY + GAP;
-        int yOpt  = yMp + H_ROW + GAP;
-        int yMods = yOpt + H_ROW + GAP;
+        record Act(MenuButton.Icon icon, Runnable run) {}
+        Map<String, Act> acts = Map.of(
+                "play",        new Act(MenuButton.Icon.PLAY, () -> c.setScreen(new SelectWorldScreen(this))),
+                "multiplayer", new Act(MenuButton.Icon.MULTIPLAYER, () -> c.setScreen(new MultiplayerScreen(this))),
+                "options",     new Act(MenuButton.Icon.OPTIONS, () -> c.setScreen(new OptionsScreen(this, c.options))),
+                "mods",        new Act(MenuButton.Icon.MODS, this::openMods),
+                "close",       new Act(MenuButton.Icon.CLOSE, c::scheduleStop));
 
-        addDrawableChild(new MenuButton(LEFT, yPlay, COL_W, H_PLAY,
-                () -> "PLAY", null, MenuButton.Icon.PLAY, "play", 35, 1.8f, "play",
-                () -> c.setScreen(new SelectWorldScreen(this)), false));
-        addDrawableChild(new MenuButton(LEFT, yMp, COL_W, H_ROW,
-                () -> "Multiplayer", null, MenuButton.Icon.MULTIPLAYER, "multiplayer", 12, 1.0f, "multiplayer",
-                () -> c.setScreen(new MultiplayerScreen(this)), false));
-        addDrawableChild(new MenuButton(LEFT, yOpt, COL_W, H_ROW,
-                () -> "Options", null, MenuButton.Icon.OPTIONS, "options", 12, 1.0f, "options",
-                () -> c.setScreen(new OptionsScreen(this, c.options)), false));
-        addDrawableChild(new MenuButton(LEFT, yMods, COL_W, H_ROW,
-                () -> "Mods", () -> String.valueOf(modCount()),
-                MenuButton.Icon.MODS, "mods", 12, 1.0f, "mods", this::openMods, false));
-
-        addDrawableChild(new MenuButton(this.width - 24, 8, 16, 16,
-                () -> "", null, MenuButton.Icon.CLOSE, "close", 16, 1.0f, null, c::scheduleStop, true));
-    }
-
-    private void initCenter() {
-        var c = this.client;
-        // Showcase the brand larger in this layout (same 12:5 aspect as the brand art).
-        brandW = 192;
-        brandH = 80;
-        int playW = 150, playH = H_PLAY, colW = 110, colGap = 12;
-        int total = brandH + 12 + playH + 10 + H_ROW * 2 + GAP;
-        int top = Math.max(16, (this.height - total) / 2 - 10);
-        int cx = this.width / 2;
-
-        brandX = cx - brandW / 2;
-        brandY = top;
-        int yPlay = top + brandH + 12;
-        int yGrid = yPlay + playH + 10;
-
-        addDrawableChild(new MenuButton(cx - playW / 2, yPlay, playW, playH,
-                () -> "PLAY", null, MenuButton.Icon.PLAY, "play", 35, 1.8f, "play",
-                () -> c.setScreen(new SelectWorldScreen(this)), false));
-
-        int lx = cx - colGap / 2 - colW, rx = cx + colGap / 2;
-        addDrawableChild(new MenuButton(lx, yGrid, colW, H_ROW,
-                () -> "Multiplayer", null, MenuButton.Icon.MULTIPLAYER, "multiplayer", 12, 1.0f, "multiplayer",
-                () -> c.setScreen(new MultiplayerScreen(this)), false));
-        addDrawableChild(new MenuButton(lx, yGrid + H_ROW + GAP, colW, H_ROW,
-                () -> "Options", null, MenuButton.Icon.OPTIONS, "options", 12, 1.0f, "options",
-                () -> c.setScreen(new OptionsScreen(this, c.options)), false));
-        addDrawableChild(new MenuButton(rx, yGrid, colW, H_ROW,
-                () -> "Mods", () -> String.valueOf(modCount()),
-                MenuButton.Icon.MODS, "mods", 12, 1.0f, "mods", this::openMods, true));
-        addDrawableChild(new MenuButton(rx, yGrid + H_ROW + GAP, colW, H_ROW,
-                () -> "Quit", null, MenuButton.Icon.CLOSE, "close", 12, 1.0f, "mods",
-                c::scheduleStop, true));
+        for (var e : boxes.entrySet()) {
+            String slot = e.getKey();
+            Act act = acts.get(slot);
+            if (act == null) continue;                            // version / versiontag drawn directly
+            if (FontStore.hiddenFor(bg, slot)) continue;          // user hid this button
+            TitleLayout.Box b = e.getValue();
+            String def = TitleLayout.defaultLabel(slot, layout);
+            addDrawableChild(new MenuButton(b.x(), b.y(), b.w(), b.h(),
+                    () -> FontStore.labelFor(slot, def),
+                    slot.equals("mods") ? () -> String.valueOf(modCount()) : null,
+                    act.icon(), slot, b.iconSize(), b.fontScale(), slot,
+                    act.run(), b.x() > this.width / 2));
+        }
     }
 
     /** ModMenu's screen when installed; our built-in mod list otherwise (fully standalone). */
@@ -180,20 +144,24 @@ public class ModularTitleScreen extends Screen {
             ctx.drawTextWithShadow(this.textRenderer, vs0,
                     this.width - this.textRenderer.getWidth(vs0) - 10, this.height - 20, 0xCCFFFFFF);
 
-        // Minecraft version, bottom-left, 0.75 scale, with the per-background version-tag font.
-        float vs = 0.75f * FontStore.sizeFor("versiontag");
-        MutableText ver = Text.literal("Minecraft 1.21.11 © Mojang AB");
-        Identifier vf = FontStore.fontFor("versiontag");
-        if (vf != null) ver = ver.setStyle(Style.EMPTY.withFont(new StyleSpriteSource.Font(vf)));
-        var m = ctx.getMatrices();
-        m.pushMatrix();
-        m.scale(vs, vs);
-        ctx.drawTextWithShadow(this.textRenderer, ver,
-                (int) (10 / vs), (int) ((this.height - 10) / vs), 0xCCFFFFFF);
-        m.popMatrix();
+        // Minecraft version, by default bottom-left at 0.75 scale, with the per-background
+        // version-tag font / size / drag position; hideable like any other element.
+        if (!versionHidden && versionBox != null) {
+            float vs = 0.75f * FontStore.sizeFor("versiontag");
+            MutableText ver = Text.literal("Minecraft 1.21.11 © Mojang AB");
+            Identifier vf = FontStore.fontFor("versiontag");
+            if (vf != null) ver = ver.setStyle(Style.EMPTY.withFont(new StyleSpriteSource.Font(vf)));
+            var m = ctx.getMatrices();
+            m.pushMatrix();
+            m.translate((float) versionBox.x(), (float) versionBox.y());
+            m.scale(vs, vs);
+            ctx.drawTextWithShadow(this.textRenderer, ver, 0, 0, 0xCCFFFFFF);
+            m.popMatrix();
+        }
     }
 
     private void drawBrand(DrawContext ctx) {
+        if (brandHidden) return;
         int a = (int) (brandOpacity * 255f);
         if (a <= 2) return;
         var m = ctx.getMatrices();

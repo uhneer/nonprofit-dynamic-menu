@@ -208,6 +208,97 @@ public final class FontStore {
         return next;
     }
 
+    // ── per-slot custom labels / visibility / positions (same file → travel with skins) ────
+
+    /** The user's custom label for a slot, or {@code def} when none is set. */
+    public static String labelFor(String bgKey, String slot, String def) {
+        try {
+            String v = load(bgKey).get(slot + ".label");
+            return (v == null || v.isEmpty()) ? def : v;
+        } catch (Throwable t) {
+            return def;
+        }
+    }
+
+    public static String labelFor(String slot, String def) {
+        return labelFor(IconStore.currentBgKey(), slot, def);
+    }
+
+    /** Rename a button (null/blank = back to the default label). */
+    public static void setLabel(String slot, String label) {
+        String bg = IconStore.currentBgKey();
+        Map<String, String> m = load(bg);
+        if (label == null || label.isBlank()) m.remove(slot + ".label");
+        else m.put(slot + ".label", label.trim());
+        save(bg, m);
+    }
+
+    /** Whether the user hid this button on the title screen. */
+    public static boolean hiddenFor(String bgKey, String slot) {
+        return "true".equals(load(bgKey).get(slot + ".hidden"));
+    }
+
+    public static boolean hiddenFor(String slot) {
+        return hiddenFor(IconStore.currentBgKey(), slot);
+    }
+
+    public static boolean toggleHidden(String slot) {
+        String bg = IconStore.currentBgKey();
+        Map<String, String> m = load(bg);
+        boolean now = !"true".equals(m.get(slot + ".hidden"));
+        if (now) m.put(slot + ".hidden", "true");
+        else m.remove(slot + ".hidden");
+        save(bg, m);
+        return now;
+    }
+
+    /**
+     * Custom drag position for a slot as permille of the window ([xPermille, yPermille] of the
+     * widget's top-left), or null = the layout's own position. Permille keeps positions stable
+     * across window sizes and GUI scales.
+     */
+    public static int[] posFor(String bgKey, String slot) {
+        try {
+            String v = load(bgKey).get(slot + ".pos");
+            if (v == null) return null;
+            int i = v.indexOf(',');
+            return new int[]{ Integer.parseInt(v.substring(0, i).trim()),
+                              Integer.parseInt(v.substring(i + 1).trim()) };
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    public static int[] posFor(String slot) {
+        return posFor(IconStore.currentBgKey(), slot);
+    }
+
+    public static void setPos(String slot, int xPermille, int yPermille) {
+        String bg = IconStore.currentBgKey();
+        Map<String, String> m = load(bg);
+        m.put(slot + ".pos", xPermille + "," + yPermille);
+        save(bg, m);
+    }
+
+    public static void clearPos(String slot) {
+        String bg = IconStore.currentBgKey();
+        Map<String, String> m = load(bg);
+        m.remove(slot + ".pos");
+        save(bg, m);
+    }
+
+    /** True if any slot has a drag position (enables the "Reset layout" button). */
+    public static boolean hasCustomPositions(String bgKey) {
+        for (String k : load(bgKey).keySet()) if (k.endsWith(".pos")) return true;
+        return false;
+    }
+
+    public static void clearAllPositions(String bgKey) {
+        Map<String, String> m = load(bgKey);
+        m.keySet().removeIf(k -> k.endsWith(".pos"));
+        save(bgKey, m);
+    }
+
     public static void setFont(String slot, Identifier font) {
         if (root == null) return;
         String bg = IconStore.currentBgKey();

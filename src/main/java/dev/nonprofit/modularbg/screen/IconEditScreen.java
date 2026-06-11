@@ -21,6 +21,7 @@ public class IconEditScreen extends Screen {
     private final String slot;
     private final String label;
     private final int slotW, slotH;   // the shape this slot is drawn at on the title screen
+    private ButtonWidget dbBtn;
 
     public IconEditScreen(Screen parent, String slot, String label, int slotW, int slotH) {
         super(Text.literal("Edit icon — " + label));
@@ -36,13 +37,14 @@ public class IconEditScreen extends Screen {
         int cx = this.width / 2, by = this.height - 30;
         addDrawableChild(ButtonWidget.builder(Text.literal("Choose Image…"), b -> choose())
                 .dimensions(cx - 210, by, 100, 20).build());
-        var db = ButtonWidget.builder(Text.literal("🔍 Icon Database"),
-                b -> this.client.setScreen(new IconDatabaseScreen(this, slot)))
+        dbBtn = ButtonWidget.builder(Text.literal("🔍 Icon Database"), b -> {
+                    dev.nonprofit.modularbg.background.Hints.markSeen("icondb");
+                    this.client.setScreen(new IconDatabaseScreen(this, slot));
+                })
                 .dimensions(cx - 105, by, 104, 20).build();
-        db.setTooltip(net.minecraft.client.gui.tooltip.Tooltip.of(Text.literal(
-                "Browse a database of 6,000+ free open source icons and use any in one click — the search starts on '"
-                        + slot + "'")));
-        addDrawableChild(db);
+        dbBtn.setTooltip(net.minecraft.client.gui.tooltip.Tooltip.of(Text.literal(
+                "Browse a database of 15,000+ free open source icons and use any in one click")));
+        addDrawableChild(dbBtn);
         addDrawableChild(ButtonWidget.builder(Text.literal("Reset to Default"), b -> IconStore.clearIcon(slot))
                 .dimensions(cx + 4, by, 100, 20).build());
         addDrawableChild(ButtonWidget.builder(Text.literal("Done"), b -> this.close())
@@ -59,6 +61,11 @@ public class IconEditScreen extends Screen {
         super.render(ctx, mouseX, mouseY, delta);
         var tr = this.textRenderer;
         ctx.drawCenteredTextWithShadow(tr, this.title, this.width / 2, 16, 0xFFFFFFFF);
+
+        // First-run discoverability: breathe around the Icon Database button until clicked once.
+        if (dbBtn != null && dev.nonprofit.modularbg.background.Hints.shouldShow("icondb"))
+            dev.nonprofit.modularbg.background.Hints.breathe(ctx, dbBtn.getX(), dbBtn.getY(),
+                    dbBtn.getWidth(), dbBtn.getHeight());
 
         // Preview box at the slot's real aspect — the icon is drawn stretched to fill it, exactly
         // as it appears on the title screen (so a wide brand looks wide, a square icon looks square).

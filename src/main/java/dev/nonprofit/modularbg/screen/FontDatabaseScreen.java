@@ -7,14 +7,24 @@ import dev.nonprofit.modularbg.ModularBackgrounds;
 import dev.nonprofit.modularbg.background.FontStore;
 import dev.nonprofit.modularbg.background.NonprofitBackgrounds;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.gl.RenderPipelines;
 import net.minecraft.client.gui.Click;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.gui.widget.TextFieldWidget;
+import net.minecraft.client.texture.NativeImage;
+import net.minecraft.client.texture.NativeImageBackedTexture;
 import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
 
+import java.awt.Color;
+import java.awt.Font;
+import java.awt.FontMetrics;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -24,25 +34,29 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
  * In-game font database: the full Google Fonts catalog (1,800+ families, 10,000+ styles, all under
  * open source licenses), searchable with category filters, imported with one click straight into
- * nDM's font engine. No API key: the catalog comes from Google's public metadata endpoint and the
- * TTF files from fonts.gstatic.com. Index cached on disk for a week.
+ * nDM's font engine. Every row shows a LIVE preview rendered in that actual font: the TTF is
+ * fetched lazily as you scroll, rasterized with AWT off-thread, and both the TTF and the preview
+ * image are cached on disk so the list is instant next time. No API key anywhere.
  */
 public class FontDatabaseScreen extends Screen {
 
     private record Fam(String family, String category, int popularity) { }
 
     private static final String[] CATS = { "All", "Sans Serif", "Serif", "Display", "Handwriting", "Monospace" };
-    private static final int ROW_H = 24;
+    private static final int ROW_H = 30;
     private static final HttpClient HTTP = HttpClient.newBuilder()
             .followRedirects(HttpClient.Redirect.NORMAL).connectTimeout(Duration.ofSeconds(10)).build();
 
@@ -55,6 +69,13 @@ public class FontDatabaseScreen extends Screen {
     private volatile String busyFamily = null;       // family currently downloading
     private volatile String status = null;
 
+    // Live previews: family → registered texture (+ its pixel size), streamed in as you scroll.
+    private final Map<String, Identifier> previews = new HashMap<>();
+    private final Map<String, int[]> previewDims = new HashMap<>();
+    private final Set<String> previewPending = new HashSet<>();
+    private final Set<String> previewFailed = new HashSet<>();
+    private final ConcurrentLinkedQueue<Object[]> readyPreviews = new ConcurrentLinkedQueue<>(); // [family, NativeImage]
+
     private TextFieldWidget search;
     private int cat = 0;
     private double scroll = 0;
@@ -65,6 +86,14 @@ public class FontDatabaseScreen extends Screen {
         this.parent = parent;
         this.slot = slot;
         loadIndexAsync();
+    }
+
+    private static Path cacheDir() {
+        return NonprofitBackgrounds.getFolder().resolve(".cache").resolve("gfonts");
+    }
+
+    private static String keyOf(String family) {
+        return family.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9_-]", "_");
     }
 
     private void loadIndexAsync() {
@@ -143,6 +172,19 @@ public class FontDatabaseScreen extends Screen {
         ctx.drawCenteredTextWithShadow(tr, Text.literal("Font Database §8— Google Fonts, all open source"),
                 cx, 10, 0xFFFFFFFF);
 
+        // Register previews decoded on workers (must happen on the render thread).
+        Object[] rp;
+        while ((rp = readyPreviews.poll()) != null) {
+            String fam = (String) rp[0];
+            NativeImage img = (NativeImage) rp[1];
+            Identifier id = Identifier.of("nonprofit", "fontdb/" + keyOf(fam));
+            previewDims.put(fam, new int[]{ img.getWidth(), img.getHeight() });
+            MinecraftClient.getInstance().getTextureManager().registerTexture(id,
+                    new NativeImageBackedTexture(() -> "ndm-fontdb-" + keyOf(fam), img));
+            previews.put(fam, id);
+            previewPending.remove(fam);
+        }
+
         // Category chips.
         chipBoxes.clear();
         int chipX = x, chipY = 50;
@@ -167,14 +209,27 @@ public class FontDatabaseScreen extends Screen {
         int y = top - (int) scroll;
         for (Fam f : shown) {
             if (y + ROW_H > top && y < bottom) {
-                boolean hov = mouseY >= y && mouseY < y + ROW_H - 2 && mouseX >= x && mouseX < x + w;
+                boolean hov = mouseY >= y && mouseY < y + ROW_H - 2 && mouseX >= x && mouseX < x + w
+                           && mouseY >= top && mouseY < bottom;
                 boolean done = imported.contains(f.family());
                 boolean busy = f.family().equals(busyFamily);
                 ctx.fill(x, y, x + w, y + ROW_H - 2, hov ? 0x66000000 : 0x44000000);
-                ctx.drawTextWithShadow(tr, Text.literal((done ? "§a✔ " : "") + f.family()), x + 8, y + 7, 0xFFFFFFFF);
-                String right = busy ? "§edownloading..." : done ? "§8imported" : "§7" + f.category();
+
+                // Live preview in the actual font (streams in); the name in the UI font as fallback.
+                Identifier pv = previews.get(f.family());
+                if (pv != null) {
+                    int[] d = previewDims.get(f.family());
+                    int dh = 16, dw = Math.min(w - 120, Math.round(d[0] * (dh / (float) d[1])));
+                    ctx.drawTexture(RenderPipelines.GUI_TEXTURED, pv, x + 8, y + (ROW_H - 2 - dh) / 2,
+                            0f, 0f, dw, dh, dw, dh, 0xFFFFFFFF);
+                } else {
+                    requestPreview(f.family());
+                    ctx.drawTextWithShadow(tr, Text.literal((done ? "§a✔ " : "§7") + f.family()),
+                            x + 8, y + 11, 0xFFFFFFFF);
+                }
+                String right = busy ? "§edownloading..." : done ? "§a✔ imported" : "§8" + f.category();
                 ctx.drawTextWithShadow(tr, Text.literal(right), x + w - 8 - tr.getWidth(right.replaceAll("§.", "")),
-                        y + 7, 0xFFFFFFFF);
+                        y + 11, 0xFFFFFFFF);
             }
             y += ROW_H;
         }
@@ -194,23 +249,90 @@ public class FontDatabaseScreen extends Screen {
         ctx.drawCenteredTextWithShadow(tr, Text.literal(st), cx, this.height - 40, 0xFFFFFFFF);
     }
 
+    /**
+     * Stream a row's live preview: fetch the family TTF (disk-cached), rasterize the family name in
+     * it with AWT, hand the image to the render thread. Both the TTF and the PNG are cached under
+     * {@code .cache/gfonts/} so reopening the screen costs no network at all.
+     */
+    private void requestPreview(String family) {
+        if (previewPending.contains(family) || previewFailed.contains(family)
+                || previews.containsKey(family) || previewPending.size() > 4) return;
+        previewPending.add(family);
+        Thread t = new Thread(() -> {
+            try {
+                Path dir = cacheDir();
+                Files.createDirectories(dir);
+                Path png = dir.resolve(keyOf(family) + ".png");
+                byte[] pngBytes;
+                if (Files.exists(png)) {
+                    pngBytes = Files.readAllBytes(png);
+                } else {
+                    byte[] ttf = fetchTtf(family);
+                    pngBytes = renderPreview(family, ttf);
+                    Files.write(png, pngBytes);
+                }
+                readyPreviews.add(new Object[]{ family, NativeImage.read(pngBytes) });
+            } catch (Throwable t2) {
+                previewFailed.add(family);
+                previewPending.remove(family);
+            }
+        }, "ndm-fontdb-preview");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    /** The family's regular TTF, disk-cached (also reused by the import click). */
+    private static byte[] fetchTtf(String family) throws Exception {
+        Path dir = cacheDir();
+        Files.createDirectories(dir);
+        Path f = dir.resolve(keyOf(family) + ".ttf");
+        if (Files.exists(f)) return Files.readAllBytes(f);
+        // The css2 endpoint serves direct TTF urls to simple user agents. No key needed.
+        String css = HTTP.send(HttpRequest.newBuilder(URI.create(
+                                "https://fonts.googleapis.com/css2?family=" + family.replace(" ", "+")))
+                        .header("User-Agent", "Wget/1.21").timeout(Duration.ofSeconds(20)).GET().build(),
+                HttpResponse.BodyHandlers.ofString()).body();
+        Matcher m = Pattern.compile("url\\((https://fonts\\.gstatic\\.com/[^)]+\\.ttf)\\)").matcher(css);
+        if (!m.find()) throw new IllegalStateException("no ttf url in css response");
+        byte[] ttf = HTTP.send(HttpRequest.newBuilder(URI.create(m.group(1)))
+                        .timeout(Duration.ofSeconds(30)).GET().build(),
+                HttpResponse.BodyHandlers.ofByteArray()).body();
+        Files.write(f, ttf);
+        return ttf;
+    }
+
+    /** White-on-transparent PNG of the family name set in its own font (2× for crispness). */
+    private static byte[] renderPreview(String family, byte[] ttf) throws Exception {
+        Font base = Font.createFont(Font.TRUETYPE_FONT, new java.io.ByteArrayInputStream(ttf));
+        Font font = base.deriveFont(26f);
+        BufferedImage probe = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D pg = probe.createGraphics();
+        FontMetrics fm = pg.getFontMetrics(font);
+        String sample = family;
+        // Fonts that can't show their own (Latin) name get a generic displayable sample.
+        if (font.canDisplayUpTo(sample) != -1) sample = "AaBbGg 123";
+        int tw = Math.max(8, fm.stringWidth(sample)), th = fm.getAscent() + fm.getDescent();
+        pg.dispose();
+
+        BufferedImage img = new BufferedImage(tw + 8, Math.max(8, th), BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = img.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+        g.setFont(font);
+        g.setColor(Color.WHITE);
+        g.drawString(sample, 4, fm.getAscent());
+        g.dispose();
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        javax.imageio.ImageIO.write(img, "png", bos);
+        return bos.toByteArray();
+    }
+
     private void importFamily(Fam f) {
         if (busyFamily != null || imported.contains(f.family())) return;
         busyFamily = f.family();
         status = "§edownloading " + f.family() + "...";
         Thread t = new Thread(() -> {
             try {
-                // The css2 endpoint serves direct TTF urls to simple user agents. No key needed.
-                String css = HTTP.send(HttpRequest.newBuilder(URI.create(
-                                        "https://fonts.googleapis.com/css2?family="
-                                                + f.family().replace(" ", "+")))
-                                .header("User-Agent", "Wget/1.21").timeout(Duration.ofSeconds(20)).GET().build(),
-                        HttpResponse.BodyHandlers.ofString()).body();
-                Matcher m = Pattern.compile("url\\((https://fonts\\.gstatic\\.com/[^)]+\\.ttf)\\)").matcher(css);
-                if (!m.find()) throw new IllegalStateException("no ttf url in css response");
-                byte[] ttf = HTTP.send(HttpRequest.newBuilder(URI.create(m.group(1)))
-                                .timeout(Duration.ofSeconds(30)).GET().build(),
-                        HttpResponse.BodyHandlers.ofByteArray()).body();
+                byte[] ttf = fetchTtf(f.family());
                 MinecraftClient.getInstance().execute(() -> {
                     Identifier id = FontStore.addFontFromBytes(f.family(), ttf, false,
                             f.family() + " — Google Fonts, open source license", true);

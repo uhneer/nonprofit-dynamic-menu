@@ -61,7 +61,22 @@ public final class IconStore {
         };
     }
 
+    /**
+     * While the user is inside the carousel's edit flow this holds the PREVIEWED background's key, so
+     * every editor (icons, fonts, sizes, labels, positions...) applies to the skin on screen — not to
+     * whichever background happens to be selected. Null outside the edit flow.
+     */
+    private static String editTarget = null;
+
+    /** Route all per-background edits at {@code name} (null = back to the selected background). */
+    public static void setEditTarget(String name) {
+        editTarget = name == null ? null : keyFor(name);
+    }
+
+    public static String editTarget() { return editTarget; }
+
     public static String currentBgKey() {
+        if (editTarget != null) return editTarget;
         String sel = NonprofitBackgrounds.getSelected();
         if (sel == null || sel.isEmpty() || sel.equalsIgnoreCase("default")) return "default";
         return sanitize(sel);

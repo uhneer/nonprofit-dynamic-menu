@@ -86,6 +86,15 @@ public final class NonprofitBackgrounds {
             } else {
                 installDefaultSetup();   // fresh instance → the bundled grass video + ndm brand bar
             }
+            // Shuffle mode: a different background every launch (kept in memory only, so the
+            // user's explicit pick stays on disk and turning shuffle off restores it).
+            if (isShuffle()) {
+                List<String> all = available();
+                if (!all.isEmpty()) {
+                    selected = all.get(new java.util.Random().nextInt(all.size()));
+                    ModularBackgrounds.LOGGER.info("[Backgrounds] shuffle picked '{}'", selected);
+                }
+            }
             writeReadme();
             ModularBackgrounds.LOGGER.info("[Backgrounds] Engine ready. Folder: {} (selected: '{}')",
                     folder, selected.isEmpty() ? "default" : selected);
@@ -164,6 +173,23 @@ public final class NonprofitBackgrounds {
     }
 
     public static String getSelected() { return selected; }
+
+    /** Shuffle = pick a random background each launch (a {@code .shuffle} flag file). */
+    public static boolean isShuffle() {
+        try { return folder != null && Files.exists(folder.resolve(".shuffle")); }
+        catch (Throwable t) { return false; }
+    }
+
+    public static boolean toggleShuffle() {
+        try {
+            Path f = folder.resolve(".shuffle");
+            if (Files.exists(f)) { Files.delete(f); return false; }
+            Files.write(f, new byte[0]);
+            return true;
+        } catch (Throwable t) {
+            return isShuffle();
+        }
+    }
 
     public static boolean isDefault() { return selected == null || selected.isEmpty() || selected.equalsIgnoreCase("default"); }
 

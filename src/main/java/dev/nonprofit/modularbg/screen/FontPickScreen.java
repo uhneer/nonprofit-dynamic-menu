@@ -26,6 +26,7 @@ public class FontPickScreen extends Screen {
     private final String slot, sample;
     private List<Identifier> fonts;
     private int page = 0, perPage, rowH = 26, listTop = 40;
+    private ButtonWidget dbBtn;
 
     public FontPickScreen(Screen parent, String slot, String sample) {
         super(Text.literal("Choose font — " + slot));
@@ -51,12 +52,14 @@ public class FontPickScreen extends Screen {
                 this.clearAndInit();
             }
         }).dimensions(cx - 44, by, 80, 20).build());
-        var db = ButtonWidget.builder(Text.literal("🔍 Database"),
-                b -> this.client.setScreen(new FontDatabaseScreen(this, slot)))
+        dbBtn = ButtonWidget.builder(Text.literal("🔍 Database"), b -> {
+                    dev.nonprofit.modularbg.background.Hints.markSeen("fontdb");
+                    this.client.setScreen(new FontDatabaseScreen(this, slot));
+                })
                 .dimensions(cx + 39, by, 76, 20).build();
-        db.setTooltip(net.minecraft.client.gui.tooltip.Tooltip.of(Text.literal(
+        dbBtn.setTooltip(net.minecraft.client.gui.tooltip.Tooltip.of(Text.literal(
                 "Browse a database of 10,000+ free font styles (Google Fonts, all open source) and import any in one click")));
-        addDrawableChild(db);
+        addDrawableChild(dbBtn);
         addDrawableChild(ButtonWidget.builder(Text.literal("Done"), b -> this.close())
                 .dimensions(cx + 118, by, 56, 20).build());
     }
@@ -96,6 +99,11 @@ public class FontPickScreen extends Screen {
         ctx.drawCenteredTextWithShadow(tr,
                 Text.literal("§8page " + (page + 1) + " / " + Math.max(1, (fonts.size() + perPage - 1) / perPage)),
                 this.width / 2, this.height - 40, 0xFFFFFFFF);
+
+        // First-run discoverability: breathe around the Database button until it's clicked once.
+        if (dbBtn != null && dev.nonprofit.modularbg.background.Hints.shouldShow("fontdb"))
+            dev.nonprofit.modularbg.background.Hints.breathe(ctx, dbBtn.getX(), dbBtn.getY(),
+                    dbBtn.getWidth(), dbBtn.getHeight());
     }
 
     @Override
