@@ -49,6 +49,12 @@ public class FontEditOverlayScreen extends Screen {
         slots.add(new Slot("mods", () -> "Mods", left + 4 + 12 + 8, yMods + 6, 1.0f));
         slots.add(new Slot("versiontag", () -> "Minecraft 1.21.11 © Mojang AB", 10, this.height - 10, 0.75f));
 
+        var db = ButtonWidget.builder(Text.literal("🔍 Font Database"),
+                b -> this.client.setScreen(new FontDatabaseScreen(this, null)))
+                .dimensions(this.width - 126, this.height - 26, 120, 20).build();
+        db.setTooltip(net.minecraft.client.gui.tooltip.Tooltip.of(Text.literal(
+                "Browse a database of 10,000+ free font styles (Google Fonts, all open source) and import any in one click")));
+        addDrawableChild(db);
         addDrawableChild(ButtonWidget.builder(Text.literal("Done"), b -> this.close())
                 .dimensions(this.width / 2 - 50, this.height - 26, 100, 20).build());
     }
@@ -105,10 +111,14 @@ public class FontEditOverlayScreen extends Screen {
             ctx.drawTextWithShadow(tr, "-", sx + 3, sy + 1, 0xFFFFFFFF);
             ctx.drawTextWithShadow(tr, "+", sx + 15, sy + 1, 0xFFFFFFFF);
             sizeBoxes.add(new int[]{ sx, sy });                      // x,y of the [-] box
-            if (hov)
+            if (hov) {
                 ctx.drawTextWithShadow(tr, Text.literal("§e✎ font  §7size ×"
                                 + String.format(java.util.Locale.ROOT, "%.2f", FontStore.sizeFor(s.key()))),
                         sx + 28, by + h / 2 - 4, 0xFFFFFF66);
+                String about = FontStore.aboutFor(FontStore.fontFor(s.key()));   // attribution sidecar
+                if (about != null)
+                    ctx.drawTextWithShadow(tr, Text.literal("§8" + about), sx + 28, by + h / 2 + 7, 0xFFFFFFFF);
+            }
         }
     }
 

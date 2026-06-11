@@ -50,9 +50,15 @@ public class FontPickScreen extends Screen {
                 FontStore.addFontFromFile(picked);   // installs a .ttf/.otf, enables the pack, reloads
                 this.clearAndInit();
             }
-        }).dimensions(cx - 44, by, 110, 20).build());
+        }).dimensions(cx - 44, by, 80, 20).build());
+        var db = ButtonWidget.builder(Text.literal("🔍 Database"),
+                b -> this.client.setScreen(new FontDatabaseScreen(this, slot)))
+                .dimensions(cx + 39, by, 76, 20).build();
+        db.setTooltip(net.minecraft.client.gui.tooltip.Tooltip.of(Text.literal(
+                "Browse a database of 10,000+ free font styles (Google Fonts, all open source) and import any in one click")));
+        addDrawableChild(db);
         addDrawableChild(ButtonWidget.builder(Text.literal("Done"), b -> this.close())
-                .dimensions(cx + 70, by, 100, 20).build());
+                .dimensions(cx + 118, by, 56, 20).build());
     }
 
     private int rowAt(int my) {

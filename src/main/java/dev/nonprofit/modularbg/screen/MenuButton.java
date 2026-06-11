@@ -92,14 +92,17 @@ public class MenuButton extends ClickableWidget {
         Identifier tex = (iconKey != null) ? IconStore.resolved(iconKey) : null;
         int iconOffset = 0;
         if (tex != null || icon != Icon.NONE) {
-            int ix = iconOnly ? x + (w - iconSize) / 2 : x + 4;   // centered on icon-only buttons
-            int iconY = y + (h - iconSize) / 2;
+            // Per-background user icon size multiplier on top of the slot's base size.
+            int is = Math.max(4, Math.round(iconSize
+                    * (iconKey != null ? FontStore.iconSizeFor(iconKey) : 1.0f)));
+            int ix = iconOnly ? x + (w - is) / 2 : x + 4;          // centered on icon-only buttons
+            int iconY = y + (h - is) / 2;
             if (tex != null)
                 ctx.drawTexture(RenderPipelines.GUI_TEXTURED, tex, ix, iconY, 0f, 0f,
-                        iconSize, iconSize, iconSize, iconSize, col);
+                        is, is, is, is, col);
             else
-                Icons.draw(ctx, icon, ix, iconY, iconSize, col);
-            iconOffset = iconSize + 8;
+                Icons.draw(ctx, icon, ix, iconY, is, col);
+            iconOffset = is + 8;
         }
 
         if (!iconOnly) {

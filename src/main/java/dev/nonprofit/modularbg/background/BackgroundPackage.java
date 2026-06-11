@@ -90,27 +90,28 @@ public final class BackgroundPackage {
         }
     }
 
-    /** Include any custom (namespace "nonprofit") fonts referenced by the assignments file. */
+    /**
+     * Include the SOURCE files (.ttf/.otf + attribution) of any custom fonts referenced by the
+     * assignments — the importer re-rasterizes them with its own engine, so skins carry real fonts.
+     */
     private static void bundleCustomFonts(ZipOutputStream zos, Path fontsTxt) {
         try {
             Path packFont = FontStore.fontPackRoot().resolve("assets").resolve("nonprofit").resolve("font");
+            Path srcDir = packFont.resolve("src");
+            java.util.Set<String> doneKeys = new java.util.HashSet<>();
             for (String line : Files.readAllLines(fontsTxt, StandardCharsets.UTF_8)) {
                 int i = line.indexOf('=');
                 if (i < 0) continue;
                 String id = line.substring(i + 1).trim();
                 if (!id.startsWith("nonprofit:")) continue;
                 String fk = id.substring("nonprofit:".length());
-                Path json = packFont.resolve(fk + ".json");
-                if (!Files.exists(json)) continue;
-                putFile(zos, "customfonts/" + fk + ".json", json);
-                String txt = new String(Files.readAllBytes(json), StandardCharsets.UTF_8);
-                int fi = txt.indexOf("nonprofit:ttf/");
-                if (fi >= 0) {
-                    int end = txt.indexOf('"', fi);
-                    String ttf = txt.substring(fi + "nonprofit:ttf/".length(), end);
-                    Path tf = packFont.resolve("ttf").resolve(ttf);
-                    if (Files.exists(tf)) putFile(zos, "customfonts/ttf/" + ttf, tf);
-                }
+                if (!doneKeys.add(fk)) continue;
+                if (Files.isDirectory(srcDir))
+                    try (DirectoryStream<Path> ds = Files.newDirectoryStream(srcDir, fk + ".*")) {
+                        for (Path p : ds) putFile(zos, "customfonts/src/" + p.getFileName(), p);
+                    }
+                Path about = packFont.resolve(fk + ".about");
+                if (Files.exists(about)) putFile(zos, "customfonts/src/" + fk + ".about", about);
             }
         } catch (Throwable ignored) { }
     }
@@ -149,11 +150,26 @@ public final class BackgroundPackage {
                     } else if (n.equals("fonts.txt") && fontsRoot != null) {
                         Files.createDirectories(fontsRoot);
                         extract(zf, n, fontsRoot.resolve(key + ".txt"));
-                    } else if (n.startsWith("customfonts/ttf/")) {
+                    } else if (n.startsWith("customfonts/src/") && !n.endsWith(".about")) {
+                        // Source font files: install through the font engine (rasterizes, OTF ok).
+                        String fn = n.substring("customfonts/src/".length());
+                        String base = fn.replaceAll("\\.[^.]+$", "");
+                        boolean otf = fn.toLowerCase(Locale.ROOT).endsWith(".otf");
+                        byte[] bytes;
+                        try (InputStream in = zf.getInputStream(e)) { bytes = in.readAllBytes(); }
+                        String about = null;
+                        ZipEntry ae = zf.getEntry("customfonts/src/" + base + ".about");
+                        if (ae != null)
+                            try (InputStream in = zf.getInputStream(ae)) {
+                                about = new String(in.readAllBytes(), StandardCharsets.UTF_8).trim();
+                            }
+                        FontStore.addFontFromBytes(base, bytes, otf, about, false);
+                        customFonts = true;
+                    } else if (n.startsWith("customfonts/ttf/")) {       // legacy packages
                         Files.createDirectories(packFont.resolve("ttf"));
                         extract(zf, n, packFont.resolve("ttf").resolve(n.substring("customfonts/ttf/".length())));
                         customFonts = true;
-                    } else if (n.startsWith("customfonts/")) {
+                    } else if (n.startsWith("customfonts/") && !n.contains("/src/")) {   // legacy defs
                         Files.createDirectories(packFont);
                         extract(zf, n, packFont.resolve(n.substring("customfonts/".length())));
                         customFonts = true;

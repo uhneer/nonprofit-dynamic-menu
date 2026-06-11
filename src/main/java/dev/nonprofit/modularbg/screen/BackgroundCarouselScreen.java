@@ -249,9 +249,10 @@ public class BackgroundCarouselScreen extends Screen {
         Identifier tex = IconStore.resolved(bg, slot);
         int iconOffset = 0;
         if (tex != null) {
-            ctx.drawTexture(RenderPipelines.GUI_TEXTURED, tex, x + 4, y + (h - iconSize) / 2,
-                    0f, 0f, iconSize, iconSize, iconSize, iconSize, 0xFFFFFFFF);
-            iconOffset = iconSize + 8;
+            int is = Math.max(4, Math.round(iconSize * FontStore.iconSizeFor(bg, slot)));
+            ctx.drawTexture(RenderPipelines.GUI_TEXTURED, tex, x + 4, y + (h - is) / 2,
+                    0f, 0f, is, is, is, is, 0xFFFFFFFF);
+            iconOffset = is + 8;
         }
         mockText(ctx, tr, bg, slot, label, x + 4 + iconOffset, y + (h - (int) (8 * fontScale)) / 2, fontScale);
     }

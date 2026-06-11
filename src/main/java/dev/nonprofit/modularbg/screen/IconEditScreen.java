@@ -35,11 +35,18 @@ public class IconEditScreen extends Screen {
     protected void init() {
         int cx = this.width / 2, by = this.height - 30;
         addDrawableChild(ButtonWidget.builder(Text.literal("Choose Image…"), b -> choose())
-                .dimensions(cx - 155, by, 102, 20).build());
+                .dimensions(cx - 210, by, 100, 20).build());
+        var db = ButtonWidget.builder(Text.literal("🔍 Icon Database"),
+                b -> this.client.setScreen(new IconDatabaseScreen(this, slot)))
+                .dimensions(cx - 105, by, 104, 20).build();
+        db.setTooltip(net.minecraft.client.gui.tooltip.Tooltip.of(Text.literal(
+                "Browse a database of 6,000+ free open source icons and use any in one click — the search starts on '"
+                        + slot + "'")));
+        addDrawableChild(db);
         addDrawableChild(ButtonWidget.builder(Text.literal("Reset to Default"), b -> IconStore.clearIcon(slot))
-                .dimensions(cx - 51, by, 102, 20).build());
+                .dimensions(cx + 4, by, 100, 20).build());
         addDrawableChild(ButtonWidget.builder(Text.literal("Done"), b -> this.close())
-                .dimensions(cx + 53, by, 102, 20).build());
+                .dimensions(cx + 109, by, 100, 20).build());
     }
 
     private void choose() {

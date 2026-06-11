@@ -157,6 +157,33 @@ public final class FontStore {
         return f;
     }
 
+    /** Per-slot ICON size multiplier (default 1.0), stored as {@code <slot>.iconsize}. */
+    public static float iconSizeFor(String bgKey, String slot) {
+        try {
+            String v = load(bgKey).get(slot + ".iconsize");
+            if (v == null) return 1.0f;
+            float f = Float.parseFloat(v);
+            return (f >= 0.5f && f <= 2.5f) ? f : 1.0f;
+        } catch (Throwable t) {
+            return 1.0f;
+        }
+    }
+
+    public static float iconSizeFor(String slot) {
+        return iconSizeFor(IconStore.currentBgKey(), slot);
+    }
+
+    /** Nudge a slot's icon size multiplier by delta (clamped 0.5–2.5) for the current background. */
+    public static float adjustIconSize(String slot, float delta) {
+        String bg = IconStore.currentBgKey();
+        float f = Math.max(0.5f, Math.min(2.5f, iconSizeFor(bg, slot) + delta));
+        Map<String, String> m = load(bg);
+        if (Math.abs(f - 1.0f) < 0.01f) m.remove(slot + ".iconsize");
+        else m.put(slot + ".iconsize", String.format(Locale.ROOT, "%.2f", f));
+        save(bg, m);
+        return f;
+    }
+
     // ── per-background title layout (stored alongside fonts, so it travels with skins) ────
 
     /** "left" (column, the classic) or "center" (brand + PLAY centered, grid below). */
@@ -221,11 +248,50 @@ public final class FontStore {
             Identifier fontId = installFont(key, Files.readAllBytes(src), otf);
             enablePackAndReload();
             invalidateFontList();
-            ModularBackgrounds.LOGGER.info("[Fonts] added '{}' as {} ({})",
-                    fileName, fontId, otf ? "OpenType — vanilla renders TrueType only, prefer .ttf" : "vanilla ttf");
+            ModularBackgrounds.LOGGER.info("[Fonts] added '{}' as {}", fileName, fontId);
             return fontId;
         } catch (Throwable t) {
             ModularBackgrounds.LOGGER.warn("[Fonts] add failed", t);
+            return null;
+        }
+    }
+
+    /**
+     * Install a font from raw bytes (font database downloads, skin imports). {@code source} is an
+     * optional attribution line ("Roboto — Google Fonts, Open Font License") shown as a tooltip in
+     * the font editor. Reload is the caller's choice so batch imports reload once.
+     */
+    public static Identifier addFontFromBytes(String rawName, byte[] bytes, boolean otf,
+                                              String source, boolean reload) {
+        try {
+            String key = rawName.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9_-]", "_");
+            if (key.isEmpty()) key = "font";
+            Identifier id = installFont(key, bytes, otf);
+            if (source != null && !source.isEmpty()) {
+                Path fd = fontPackRoot().resolve("assets").resolve("nonprofit").resolve("font");
+                Files.write(fd.resolve(key + ".about"), source.getBytes(StandardCharsets.UTF_8));
+            }
+            if (reload) {
+                enablePackAndReload();
+                invalidateFontList();
+            }
+            ModularBackgrounds.LOGGER.info("[Fonts] installed '{}' as {} ({})", rawName, id,
+                    source == null ? "user file" : source);
+            return id;
+        } catch (Throwable t) {
+            ModularBackgrounds.LOGGER.warn("[Fonts] install from bytes failed for {}", rawName, t);
+            return null;
+        }
+    }
+
+    /** Attribution line for a nonprofit:* font (from its .about sidecar), or null. */
+    public static String aboutFor(Identifier font) {
+        try {
+            if (font == null || !"nonprofit".equals(font.getNamespace())) return null;
+            Path f = fontPackRoot().resolve("assets").resolve("nonprofit").resolve("font")
+                    .resolve(font.getPath() + ".about");
+            return Files.exists(f) ? new String(Files.readAllBytes(f), StandardCharsets.UTF_8).trim() : null;
+        } catch (Throwable t) {
             return null;
         }
     }

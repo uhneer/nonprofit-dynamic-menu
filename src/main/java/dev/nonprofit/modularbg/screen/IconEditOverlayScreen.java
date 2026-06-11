@@ -75,6 +75,7 @@ public class IconEditOverlayScreen extends Screen {
         ctx.drawTextWithShadow(tr, hdr, -tr.getWidth(hdr) / 2, 0, 0xFFFFFFFF);
         m.popMatrix();
 
+        sizeBoxes.clear();
         for (Slot s : slots) {
             boolean hov = mouseX >= s.x() - 2 && mouseX < s.x() + s.w() + 2
                        && mouseY >= s.y() - 2 && mouseY < s.y() + s.h() + 2;
@@ -109,15 +110,45 @@ public class IconEditOverlayScreen extends Screen {
             }
 
             dashed(ctx, s.x() - 2, s.y() - 2, s.w() + 4, s.h() + 4, hov ? 0xFFFFFF66 : 0xAAFFFFFF);
-            if (hov)
+
+            // Icon size nudge buttons [−] [+] beside the slot (not for the brand bar — it has a box).
+            if (!s.key().equals("version")) {
+                int sx = s.x() + s.w() + 8, sy = s.y() + (s.h() - 10) / 2;
+                ctx.fill(sx, sy, sx + 10, sy + 10, 0xAA000000);
+                ctx.fill(sx + 13, sy, sx + 23, sy + 10, 0xAA000000);
+                ctx.drawTextWithShadow(tr, "-", sx + 3, sy + 1, 0xFFFFFFFF);
+                ctx.drawTextWithShadow(tr, "+", sx + 15, sy + 1, 0xFFFFFFFF);
+                sizeBoxes.add(new int[]{ sx, sy, slots.indexOf(s) });
+                if (hov)
+                    ctx.drawTextWithShadow(tr, Text.literal("§e✎ " + s.label() + "  §7size ×"
+                                    + String.format(java.util.Locale.ROOT, "%.2f",
+                                            dev.nonprofit.modularbg.background.FontStore.iconSizeFor(s.key()))),
+                            sx + 28, s.y() + (s.h() - 8) / 2, 0xFFFFFF66);
+            } else if (hov) {
                 ctx.drawTextWithShadow(tr, Text.literal("§e✎ " + s.label()),
                         s.x() + s.w() + 8, s.y() + (s.h() - 8) / 2, 0xFFFFFF66);
+            }
         }
     }
+
+    private final List<int[]> sizeBoxes = new ArrayList<>();
 
     @Override
     public boolean mouseClicked(Click click, boolean doubled) {
         int mx = (int) click.x(), my = (int) click.y();
+        for (int[] sb : sizeBoxes) {
+            if (my >= sb[1] && my < sb[1] + 10) {
+                String key = slots.get(sb[2]).key();
+                if (mx >= sb[0] && mx < sb[0] + 10) {
+                    dev.nonprofit.modularbg.background.FontStore.adjustIconSize(key, -0.1f);
+                    return true;
+                }
+                if (mx >= sb[0] + 13 && mx < sb[0] + 23) {
+                    dev.nonprofit.modularbg.background.FontStore.adjustIconSize(key, +0.1f);
+                    return true;
+                }
+            }
+        }
         for (Slot s : slots) {
             if (mx >= s.x() - 2 && mx < s.x() + s.w() + 2 && my >= s.y() - 2 && my < s.y() + s.h() + 2) {
                 this.client.setScreen(new IconEditScreen(this, s.key(), s.label(), s.dispW(), s.dispH()));
