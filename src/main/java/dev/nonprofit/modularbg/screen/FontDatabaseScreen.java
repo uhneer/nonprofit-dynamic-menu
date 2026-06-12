@@ -287,14 +287,23 @@ public class FontDatabaseScreen extends Screen {
         Files.createDirectories(dir);
         Path f = dir.resolve(keyOf(family) + ".ttf");
         if (Files.exists(f)) return Files.readAllBytes(f);
-        // The css2 endpoint serves direct TTF urls to simple user agents. No key needed.
-        String css = HTTP.send(HttpRequest.newBuilder(URI.create(
-                                "https://fonts.googleapis.com/css2?family=" + family.replace(" ", "+")))
-                        .header("User-Agent", "Wget/1.21").timeout(Duration.ofSeconds(20)).GET().build(),
-                HttpResponse.BodyHandlers.ofString()).body();
-        Matcher m = Pattern.compile("url\\((https://fonts\\.gstatic\\.com/[^)]+\\.ttf)\\)").matcher(css);
-        if (!m.find()) throw new IllegalStateException("no ttf url in css response");
-        byte[] ttf = HTTP.send(HttpRequest.newBuilder(URI.create(m.group(1)))
+        // The css2 endpoint serves direct TTF urls to simple user agents; some families only
+        // resolve through the legacy css endpoint, so try both before giving up. No key needed.
+        String url = null;
+        for (String endpoint : new String[]{
+                "https://fonts.googleapis.com/css2?family=" + family.replace(" ", "+"),
+                "https://fonts.googleapis.com/css?family=" + family.replace(" ", "+") }) {
+            try {
+                String css = HTTP.send(HttpRequest.newBuilder(URI.create(endpoint))
+                                .header("User-Agent", "Wget/1.21").timeout(Duration.ofSeconds(20)).GET().build(),
+                        HttpResponse.BodyHandlers.ofString()).body();
+                Matcher m = Pattern.compile("url\\((https://fonts\\.gstatic\\.com/[^)]+\\.(?:ttf|otf))\\)")
+                        .matcher(css);
+                if (m.find()) { url = m.group(1); break; }
+            } catch (Throwable ignored) { }
+        }
+        if (url == null) throw new IllegalStateException("no ttf url for " + family);
+        byte[] ttf = HTTP.send(HttpRequest.newBuilder(URI.create(url))
                         .timeout(Duration.ofSeconds(30)).GET().build(),
                 HttpResponse.BodyHandlers.ofByteArray()).body();
         Files.write(f, ttf);

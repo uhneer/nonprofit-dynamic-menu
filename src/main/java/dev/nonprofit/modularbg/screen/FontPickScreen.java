@@ -27,6 +27,7 @@ public class FontPickScreen extends Screen {
     private List<Identifier> fonts;
     private int page = 0, perPage, rowH = 26, listTop = 40;
     private ButtonWidget dbBtn;
+    private String status = null;
 
     public FontPickScreen(Screen parent, String slot, String sample) {
         super(Text.literal("Choose font — " + slot));
@@ -48,7 +49,10 @@ public class FontPickScreen extends Screen {
         addDrawableChild(ButtonWidget.builder(Text.literal("＋ Add Font"), b -> {
             String picked = NonprofitBackgrounds.openFontPicker();
             if (picked != null) {
-                FontStore.addFontFromFile(picked);   // installs a .ttf/.otf, enables the pack, reloads
+                Identifier added = FontStore.addFontFromFile(picked);
+                // Surface failures instead of silently doing nothing (broken/odd font files).
+                status = added != null ? "§a✔ font installed — click it in the list to use it"
+                        : "§cthat font could not be installed — the file may be damaged (details in the log)";
                 this.clearAndInit();
             }
         }).dimensions(cx - 44, by, 80, 20).build());
@@ -97,7 +101,8 @@ public class FontPickScreen extends Screen {
             ctx.drawTextWithShadow(tr, preview, x1 - 6 - pw, ry + (rowH - 2 - 8) / 2, 0xFFE8E8E8);
         }
         ctx.drawCenteredTextWithShadow(tr,
-                Text.literal("§8page " + (page + 1) + " / " + Math.max(1, (fonts.size() + perPage - 1) / perPage)),
+                Text.literal(status != null ? status
+                        : "§8page " + (page + 1) + " / " + Math.max(1, (fonts.size() + perPage - 1) / perPage)),
                 this.width / 2, this.height - 40, 0xFFFFFFFF);
 
         // First-run discoverability: breathe around the Database button until it's clicked once.

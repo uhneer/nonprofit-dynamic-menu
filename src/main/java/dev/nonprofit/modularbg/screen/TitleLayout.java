@@ -40,6 +40,9 @@ public final class TitleLayout {
      * Slot → box for this background at this window size, in screen order:
      * version (brand bar), play, multiplayer, options, mods, close, versiontag.
      */
+    /** The drag grid (px). Drag positions resolve back onto this so elements always line up. */
+    public static final int GRID = 8;
+
     public static Map<String, Box> compute(String bgKey, int width, int height) {
         String layout = FontStore.layoutFor(bgKey);
         Map<String, Box> m = new LinkedHashMap<>();
@@ -73,12 +76,18 @@ public final class TitleLayout {
         }
         m.put("versiontag", new Box(10, height - 12, 150, 8, 0, 0.75f, true));
 
-        // The user's drag positions override the layout's own (permille of the window).
-        for (var e : m.entrySet()) {
-            int[] p = FontStore.posFor(bgKey, e.getKey());
-            if (p != null)
-                e.setValue(e.getValue().at(Math.round(p[0] * width / 1000f),
-                                           Math.round(p[1] * height / 1000f)));
+        // Drag positions apply only in the "custom" layout (permille of the window). The pixel
+        // result is re-snapped to the grid so permille rounding can never knock elements out of
+        // alignment with each other.
+        if ("custom".equals(layout)) {
+            for (var e : m.entrySet()) {
+                int[] p = FontStore.posFor(bgKey, e.getKey());
+                if (p != null) {
+                    int x = Math.round(Math.round(p[0] * width / 1000f) / (float) GRID) * GRID;
+                    int y = Math.round(Math.round(p[1] * height / 1000f) / (float) GRID) * GRID;
+                    e.setValue(e.getValue().at(x, y));
+                }
+            }
         }
         return m;
     }

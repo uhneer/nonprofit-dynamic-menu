@@ -132,7 +132,7 @@ public class BackgroundCarouselScreen extends Screen {
         }
 
         int by = this.height - 26;
-        addDrawableChild(ButtonWidget.builder(Text.literal("Import Skin"), b -> {
+        var impF = ButtonWidget.builder(Text.literal("Import File"), b -> {
             String zip = BackgroundPackage.pickImportZip();
             if (zip != null) {
                 String n = BackgroundPackage.importZip(zip);
@@ -141,12 +141,21 @@ public class BackgroundCarouselScreen extends Screen {
                 idx = i >= 0 ? i + 1 : 0;
                 clearAndInit();
             }
-        }).dimensions(cx - 169, by, 110, 20).build());
+        }).dimensions(cx - 196, by, 92, 20).build();
+        impF.setTooltip(Tooltip.of(Text.literal("Import a shared skin from a .zip on your computer")));
+        addDrawableChild(impF);
+
+        var db = ButtonWidget.builder(Text.literal("🌐 Skin Hub"),
+                b -> this.client.setScreen(new SkinDatabaseScreen(this, isAdd() || isDefault() ? null : currentName())))
+                .dimensions(cx - 100, by, 92, 20).build();
+        db.setTooltip(Tooltip.of(Text.literal(
+                "Browse, vote on, and share community skins online — and upload your own")));
+        addDrawableChild(db);
 
         var shuffle = ButtonWidget.builder(shuffleLabel(), b -> {
             NonprofitBackgrounds.toggleShuffle();
             b.setMessage(shuffleLabel());
-        }).dimensions(cx - 55, by, 110, 20).build();
+        }).dimensions(cx - 4, by, 92, 20).build();
         shuffle.setTooltip(Tooltip.of(Text.literal(
                 "Pick a random background every time the game starts")));
         addDrawableChild(shuffle);
@@ -154,7 +163,7 @@ public class BackgroundCarouselScreen extends Screen {
         addDrawableChild(ButtonWidget.builder(Text.literal("Save & Exit"), b -> {
             if (!isAdd()) NonprofitBackgrounds.select(currentName());
             this.close();
-        }).dimensions(cx + 59, by, 110, 20).build());
+        }).dimensions(cx + 92, by, 104, 20).build());
     }
 
     private static Text shuffleLabel() {

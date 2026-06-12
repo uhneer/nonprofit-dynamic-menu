@@ -186,11 +186,14 @@ public final class FontStore {
 
     // ── per-background title layout (stored alongside fonts, so it travels with skins) ────
 
-    /** "left" (column, the classic) or "center" (brand + PLAY centered, grid below). */
+    /**
+     * "left" (column, the classic), "center" (brand + PLAY centered, grid below), or "custom"
+     * (left base + the user's dragged positions; dragging is only allowed in this mode).
+     */
     public static String layoutFor(String bgKey) {
         try {
             String v = load(bgKey).get("layout");
-            return "center".equals(v) ? "center" : "left";
+            return ("center".equals(v) || "custom".equals(v)) ? v : "left";
         } catch (Throwable t) {
             return "left";
         }
@@ -198,9 +201,10 @@ public final class FontStore {
 
     public static String layout() { return layoutFor(IconStore.currentBgKey()); }
 
-    /** Toggle the current background's layout; returns the new value. */
+    /** Cycle the current background's layout left → center → custom; returns the new value. */
     public static String cycleLayout(String bgKey) {
-        String next = "center".equals(layoutFor(bgKey)) ? "left" : "center";
+        String cur = layoutFor(bgKey);
+        String next = switch (cur) { case "left" -> "center"; case "center" -> "custom"; default -> "left"; };
         Map<String, String> m = load(bgKey);
         if ("left".equals(next)) m.remove("layout");
         else m.put("layout", next);
@@ -233,8 +237,9 @@ public final class FontStore {
         save(bg, m);
     }
 
-    /** Whether the user hid this button on the title screen. */
+    /** Whether the user hid this button on the title screen. Options is never hideable. */
     public static boolean hiddenFor(String bgKey, String slot) {
+        if ("options".equals(slot)) return false;   // the way back into settings must always exist
         return "true".equals(load(bgKey).get(slot + ".hidden"));
     }
 
@@ -285,6 +290,20 @@ public final class FontStore {
         Map<String, String> m = load(bg);
         m.remove(slot + ".pos");
         save(bg, m);
+    }
+
+    /** Snap-to-grid while dragging (default on), per background. */
+    public static boolean snapFor(String bgKey) {
+        return !"false".equals(load(bgKey).get("snap"));
+    }
+
+    public static boolean toggleSnap(String bgKey) {
+        Map<String, String> m = load(bgKey);
+        boolean now = !snapFor(bgKey);
+        if (now) m.remove("snap");
+        else m.put("snap", "false");
+        save(bgKey, m);
+        return now;
     }
 
     /** True if any slot has a drag position (enables the "Reset layout" button). */
