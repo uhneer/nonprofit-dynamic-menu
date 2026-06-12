@@ -108,24 +108,10 @@ public class ModularTitleScreen extends Screen {
         if (!BackgroundRenderer.draw(ctx)) {
             ctx.fill(0, 0, this.width, this.height, 0xFF000000); // default: black
         }
-        if ("center".equals(layout)) {
-            // Top + bottom readability shadows for the centered layout.
-            int th = Math.max(1, this.height / 4);
-            for (int y = 0; y < th; y++) {
-                int a = (int) ((1f - y / (float) th) * 95f);
-                if (a > 0) ctx.fill(0, y, this.width, y + 1, a << 24);
-            }
-            int bh = Math.max(1, this.height / 3);
-            for (int y = 0; y < bh; y++) {
-                int a = (int) ((y / (float) bh) * 110f);
-                if (a > 0) ctx.fill(0, this.height - bh + y, this.width, this.height - bh + y + 1, a << 24);
-            }
-        } else {
-            int gw = Math.max(1, this.width / 3);            // left readability gradient
-            for (int x = 0; x < gw; x++) {
-                int a = (int) ((1f - x / (float) gw) * 100f);
-                if (a > 0) ctx.fill(x, 0, x + 1, this.height, a << 24);
-            }
+        int gw = Math.max(1, this.width / 3);            // left readability gradient
+        for (int x = 0; x < gw; x++) {
+            int a = (int) ((1f - x / (float) gw) * 100f);
+            if (a > 0) ctx.fill(x, 0, x + 1, this.height, a << 24);
         }
     }
 
@@ -168,9 +154,7 @@ public class ModularTitleScreen extends Screen {
         boolean slid = Math.abs(brandOffsetX) > 0.5f;
         if (slid) {
             m.pushMatrix();
-            // The centered layout slides the brand down from above instead of in from the left.
-            if ("center".equals(layout)) m.translate(0f, brandOffsetX);
-            else m.translate(brandOffsetX, 0f);
+            m.translate(brandOffsetX, 0f);
         }
 
         // The brand bar: the per-background custom image if one is set, else the default version_info

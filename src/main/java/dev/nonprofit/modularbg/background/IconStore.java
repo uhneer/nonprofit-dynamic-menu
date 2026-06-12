@@ -130,6 +130,12 @@ public final class IconStore {
         return dimCache.get(ck(currentBgKey(), slot));
     }
 
+    /** [width, height] of an arbitrary background's override for a slot, or null. */
+    public static int[] dimsFor(String bg, String slot) {
+        iconFor(bg, slot);
+        return dimCache.get(ck(bg, slot));
+    }
+
     public static boolean hasCustom(String slot) { return iconFor(slot) != null; }
 
     /** Copy a chosen file into the override slot for the current background. */

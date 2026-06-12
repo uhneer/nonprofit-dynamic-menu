@@ -29,7 +29,6 @@ public final class TitleLayout {
             case "multiplayer" -> "Multiplayer";
             case "options"     -> "Options";
             case "mods"        -> "Mods";
-            case "close"       -> "center".equals(layout) ? "Quit" : "";
             default            -> "";
         };
     }
@@ -43,37 +42,37 @@ public final class TitleLayout {
     /** The drag grid (px). Drag positions resolve back onto this so elements always line up. */
     public static final int GRID = 8;
 
+    /**
+     * The brand bar's box wraps the brand IMAGE's own aspect ratio instead of stretching the image
+     * into a fixed 120×50: width is the column width times the user's brand-size multiplier, and
+     * the height follows the image (clamped so an extreme aspect can't take over the screen).
+     */
+    private static int[] brandBox(String bgKey) {
+        float mult = FontStore.iconSizeFor(bgKey, "version");
+        int w = Math.max(24, Math.round(COL_W * mult));
+        float aspect = H_VER / (float) COL_W;       // the bundled brand art's shape (120×50)
+        int[] d = dev.nonprofit.modularbg.background.IconStore.dimsFor(bgKey, "version");
+        if (d != null && d[0] > 0 && d[1] > 0) aspect = d[1] / (float) d[0];
+        int h = Math.max(12, Math.min(Math.round(w * 1.2f), Math.round(w * aspect)));
+        return new int[]{ w, h };
+    }
+
     public static Map<String, Box> compute(String bgKey, int width, int height) {
         String layout = FontStore.layoutFor(bgKey);
         Map<String, Box> m = new LinkedHashMap<>();
-        if ("center".equals(layout)) {
-            int brandW = 192, brandH = 80, playW = 150, colW = 110, colGap = 12;
-            int total = brandH + 12 + H_PLAY + 10 + H_ROW * 2 + GAP;
-            int top = Math.max(16, (height - total) / 2 - 10);
-            int cx = width / 2;
-            m.put("version", new Box(cx - brandW / 2, top, brandW, brandH, 0, 1f, false));
-            int yPlay = top + brandH + 12;
-            m.put("play", new Box(cx - playW / 2, yPlay, playW, H_PLAY, 35, 1.8f, true));
-            int yGrid = yPlay + H_PLAY + 10;
-            int lx = cx - colGap / 2 - colW, rx = cx + colGap / 2;
-            m.put("multiplayer", new Box(lx, yGrid, colW, H_ROW, 12, 1f, true));
-            m.put("options", new Box(lx, yGrid + H_ROW + GAP, colW, H_ROW, 12, 1f, true));
-            m.put("mods", new Box(rx, yGrid, colW, H_ROW, 12, 1f, true));
-            m.put("close", new Box(rx, yGrid + H_ROW + GAP, colW, H_ROW, 12, 1f, true));
-        } else {
-            int total = H_VER + H_PLAY + H_ROW * 3 + GAP * 4;
-            int top = (height - total) / 2;
-            m.put("version", new Box(LEFT, top, COL_W, H_VER, 0, 1f, false));
-            int yPlay = top + H_VER + GAP;
-            m.put("play", new Box(LEFT, yPlay, COL_W, H_PLAY, 35, 1.8f, true));
-            int yMp = yPlay + H_PLAY + GAP;
-            m.put("multiplayer", new Box(LEFT, yMp, COL_W, H_ROW, 12, 1f, true));
-            int yOpt = yMp + H_ROW + GAP;
-            m.put("options", new Box(LEFT, yOpt, COL_W, H_ROW, 12, 1f, true));
-            int yMods = yOpt + H_ROW + GAP;
-            m.put("mods", new Box(LEFT, yMods, COL_W, H_ROW, 12, 1f, true));
-            m.put("close", new Box(width - 24, 8, 16, 16, 16, 1f, false));
-        }
+        int[] bb = brandBox(bgKey);
+        int total = bb[1] + H_PLAY + H_ROW * 3 + GAP * 4;
+        int top = (height - total) / 2;
+        m.put("version", new Box(LEFT, top, bb[0], bb[1], 0, 1f, false));
+        int yPlay = top + bb[1] + GAP;
+        m.put("play", new Box(LEFT, yPlay, COL_W, H_PLAY, 35, 1.8f, true));
+        int yMp = yPlay + H_PLAY + GAP;
+        m.put("multiplayer", new Box(LEFT, yMp, COL_W, H_ROW, 12, 1f, true));
+        int yOpt = yMp + H_ROW + GAP;
+        m.put("options", new Box(LEFT, yOpt, COL_W, H_ROW, 12, 1f, true));
+        int yMods = yOpt + H_ROW + GAP;
+        m.put("mods", new Box(LEFT, yMods, COL_W, H_ROW, 12, 1f, true));
+        m.put("close", new Box(width - 24, 8, 16, 16, 16, 1f, false));
         m.put("versiontag", new Box(10, height - 12, 150, 8, 0, 0.75f, true));
 
         // Drag positions apply only in the "custom" layout (permille of the window). The pixel

@@ -50,7 +50,8 @@ public class SkinDatabaseScreen extends Screen {
     private static final HttpClient HTTP = HttpClient.newBuilder()
             .followRedirects(HttpClient.Redirect.NORMAL).connectTimeout(Duration.ofSeconds(10)).build();
 
-    private record Entry(String id, String name, String author, List<String> cats, int votes, String zip) { }
+    record Entry(String id, String name, String author, List<String> cats, int votes, String zip,
+                 String date, List<String> assets) { }
 
     private final Screen parent;
     private final String uploadSkin;                 // the carousel's previewed skin, "" / null = none
@@ -63,7 +64,9 @@ public class SkinDatabaseScreen extends Screen {
     private int cat = -1;                            // -1 = All
     private double scroll = 0;
     private final List<Object[]> chipBoxes = new ArrayList<>();
-    private final List<int[]> voteBoxes = new ArrayList<>();   // [x,y,w,h, rowIdx]
+    private final List<int[]> favBoxes = new ArrayList<>();   // [x,y,w,h, rowIdx]
+    private final List<int[]> addBoxes = new ArrayList<>();
+    private boolean barDrag = false;
 
     public SkinDatabaseScreen(Screen parent) { this(parent, null); }
 
@@ -86,13 +89,18 @@ public class SkinDatabaseScreen extends Screen {
                     List<String> cats = new ArrayList<>();
                     if (o.has("categories"))
                         for (var c : o.getAsJsonArray("categories")) cats.add(c.getAsString());
+                    List<String> assets = new ArrayList<>();
+                    if (o.has("assets"))
+                        for (var a : o.getAsJsonArray("assets")) assets.add(a.getAsString());
                     list.add(new Entry(
                             o.has("id") ? o.get("id").getAsString() : o.get("name").getAsString(),
                             o.get("name").getAsString(),
                             o.has("author") ? o.get("author").getAsString() : "unknown",
                             cats,
                             o.has("votes") ? o.get("votes").getAsInt() : 0,
-                            o.has("zip") ? o.get("zip").getAsString() : null));
+                            o.has("zip") ? o.get("zip").getAsString() : null,
+                            o.has("date") ? o.get("date").getAsString() : "",
+                            assets));
                 }
                 list.sort((a, b) -> Integer.compare(b.votes(), a.votes()));
                 all = list;
@@ -111,6 +119,7 @@ public class SkinDatabaseScreen extends Screen {
         String q = search == null ? "" : search.getText().toLowerCase(Locale.ROOT).trim();
         shown = new ArrayList<>();
         for (Entry e : all) {
+            if (cat == -2 && !dev.nonprofit.modularbg.background.SkinHub.isFavorite(e.id())) continue;
             if (cat >= 0 && !e.cats().contains(CATEGORIES[cat])) continue;
             if (!q.isEmpty() && !e.name().toLowerCase(Locale.ROOT).contains(q)
                     && !e.author().toLowerCase(Locale.ROOT).contains(q)) continue;
@@ -173,14 +182,20 @@ public class SkinDatabaseScreen extends Screen {
 
         chipBoxes.clear();
         int chipX = x, chipY = 50;
-        for (int i = -1; i < CATEGORIES.length; i++) {
-            String label = i < 0 ? "All" : CATEGORIES[i];
+        List<Object[]> chips = new ArrayList<>();
+        chips.add(new Object[]{ -1, "All" });
+        chips.add(new Object[]{ -2, "♥ Favorites" });
+        for (int i = 0; i < CATEGORIES.length; i++) chips.add(new Object[]{ i, CATEGORIES[i] });
+        for (Object[] chip : chips) {
+            int idx = (int) chip[0];
+            String label = (String) chip[1];
             int cw = tr.getWidth(label) + 12;
             if (chipX + cw > x + w) break;             // narrow window: drop trailing chips
-            boolean sel = i == cat;
-            ctx.fill(chipX, chipY, chipX + cw, chipY + 14, sel ? 0xCC2E6B3A : 0x66222230);
+            boolean sel = idx == cat;
+            int bg = sel ? (idx == -2 ? 0xCC8C2E5C : 0xCC2E6B3A) : 0x66222230;
+            ctx.fill(chipX, chipY, chipX + cw, chipY + 14, bg);
             ctx.drawCenteredTextWithShadow(tr, Text.literal(label), chipX + cw / 2, chipY + 3, 0xFFFFFFFF);
-            chipBoxes.add(new Object[]{ chipX, chipY, cw, i });
+            chipBoxes.add(new Object[]{ chipX, chipY, cw, idx });
             chipX += cw + 6;
         }
 
@@ -200,7 +215,8 @@ public class SkinDatabaseScreen extends Screen {
             return;
         }
 
-        voteBoxes.clear();
+        favBoxes.clear();
+        addBoxes.clear();
         ctx.enableScissor(0, top, this.width, bottom);
         int y = top - (int) scroll;
         for (int i = 0; i < shown.size(); i++) {
@@ -211,13 +227,23 @@ public class SkinDatabaseScreen extends Screen {
                 ctx.fill(x, y, x + w, y + ROW_H - 2, hov ? 0x66000000 : 0x44000000);
                 ctx.drawTextWithShadow(tr, Text.literal(e.name() + " §8by " + e.author()), x + 8, y + 4, 0xFFFFFFFF);
                 ctx.drawTextWithShadow(tr, Text.literal("§8" + String.join(", ", e.cats())), x + 8, y + 15, 0xFFFFFFFF);
-                String v = "▲ " + e.votes();
-                int vw = tr.getWidth(v) + 10;
-                int vx = x + w - vw - 8, vy = y + (ROW_H - 2 - 14) / 2;
-                boolean vhov = mouseX >= vx && mouseX < vx + vw && mouseY >= vy && mouseY < vy + 14;
-                ctx.fill(vx, vy, vx + vw, vy + 14, vhov ? 0x88335544 : 0x66223322);
-                ctx.drawCenteredTextWithShadow(tr, Text.literal(v), vx + vw / 2, vy + 3, 0xFFFFFFFF);
-                voteBoxes.add(new int[]{ vx, vy, vw, 14, i });
+
+                // Corner buttons: green ＋ installs, pink ♥ favorites (count shown beside it).
+                boolean fav = dev.nonprofit.modularbg.background.SkinHub.isFavorite(e.id());
+                int count = e.votes() + (fav ? 1 : 0);
+                int ax = x + w - 20, ay = y + 2;
+                boolean ahov = mouseX >= ax && mouseX < ax + 16 && mouseY >= ay && mouseY < ay + 16;
+                ctx.fill(ax, ay, ax + 16, ay + 16, ahov ? 0xFF3BAF5C : 0xE62E8C49);
+                ctx.drawCenteredTextWithShadow(tr, Text.literal("＋"), ax + 8, ay + 4, 0xFFFFFFFF);
+                addBoxes.add(new int[]{ ax, ay, 16, 16, i });
+
+                int hx = ax - 20, hy = ay;
+                boolean hhov = mouseX >= hx && mouseX < hx + 16 && mouseY >= hy && mouseY < hy + 16;
+                ctx.fill(hx, hy, hx + 16, hy + 16, hhov ? 0xFFE9579C : fav ? 0xF0D63384 : 0xB060223C);
+                ctx.drawCenteredTextWithShadow(tr, Text.literal("♥"), hx + 8, hy + 4, 0xFFFFFFFF);
+                favBoxes.add(new int[]{ hx, hy, 16, 16, i });
+                String cnt = "§7" + count;
+                ctx.drawTextWithShadow(tr, Text.literal(cnt), hx - 6 - tr.getWidth(count + ""), y + 9, 0xFFFFFFFF);
             }
             y += ROW_H;
         }
@@ -238,6 +264,12 @@ public class SkinDatabaseScreen extends Screen {
     @Override
     public boolean mouseClicked(Click click, boolean doubled) {
         int mx = (int) click.x(), my = (int) click.y();
+        int bx = this.width / 2 + Math.min(this.width - 24, 440) / 2;
+        if (mx >= bx + 2 && mx < bx + 12 && my >= 72 && my < this.height - 34) {
+            barDrag = true;
+            barScrollTo(my);
+            return true;
+        }
         for (Object[] c : chipBoxes) {
             int x = (int) c[0], y = (int) c[1], w = (int) c[2];
             if (mx >= x && mx < x + w && my >= y && my < y + 14) {
@@ -246,27 +278,57 @@ public class SkinDatabaseScreen extends Screen {
                 return true;
             }
         }
-        for (int[] v : voteBoxes) {
+        // Pink ♥ favorites (local now; synced to the hub per session-username later).
+        for (int[] v : favBoxes) {
             if (mx >= v[0] && mx < v[0] + v[2] && my >= v[1] && my < v[1] + v[3]) {
-                // Later: one vote per player, keyed to the session username — no login needed.
-                status = "§7voting opens when the hub launches";
+                boolean now = dev.nonprofit.modularbg.background.SkinHub
+                        .toggleFavorite(shown.get(v[4]).id());
+                status = now ? "§d♥ added to favorites" : "§7removed from favorites";
+                if (cat == -2) refilter();
                 return true;
             }
         }
+        // Green ＋ installs straight to your carousel without leaving the hub.
+        for (int[] v : addBoxes) {
+            if (mx >= v[0] && mx < v[0] + v[2] && my >= v[1] && my < v[1] + v[3]) {
+                getSkin(shown.get(v[4]));
+                return true;
+            }
+        }
+        // Anywhere else on a row opens the listing detail.
         int x = this.width / 2 - Math.min(this.width - 24, 440) / 2, w = Math.min(this.width - 24, 440);
         int top = 72, bottom = this.height - 34;
         if (all != null && !shown.isEmpty() && mx >= x && mx < x + w && my >= top && my < bottom) {
             int idx = (int) ((my - top + scroll) / ROW_H);
             if (idx >= 0 && idx < shown.size()) {
-                getSkin(shown.get(idx));
+                this.client.setScreen(new SkinDetailScreen(this, shown.get(idx), this::getSkin));
                 return true;
             }
         }
         return super.mouseClicked(click, doubled);
     }
 
+    private void barScrollTo(double my) {
+        int top = 72, bottom = this.height - 34, viewH = bottom - top;
+        int contentH = shown.size() * ROW_H;
+        if (contentH <= viewH) return;
+        scroll = Math.max(0, Math.min(contentH - viewH, (my - top) / viewH * contentH - viewH / 2.0));
+    }
+
+    @Override
+    public boolean mouseDragged(Click click, double offsetX, double offsetY) {
+        if (barDrag) { barScrollTo(click.y()); return true; }
+        return super.mouseDragged(click, offsetX, offsetY);
+    }
+
+    @Override
+    public boolean mouseReleased(Click click) {
+        barDrag = false;
+        return super.mouseReleased(click);
+    }
+
     /** Download + import a hub skin (already functional for when the index goes live). */
-    private void getSkin(Entry e) {
+    void getSkin(Entry e) {
         if (e.zip() == null) { status = "§7downloads open when the hub launches"; return; }
         status = "§edownloading " + e.name() + "...";
         Thread t = new Thread(() -> {

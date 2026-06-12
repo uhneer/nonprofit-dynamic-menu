@@ -56,16 +56,16 @@ public class FontPickScreen extends Screen {
                 this.clearAndInit();
             }
         }).dimensions(cx - 44, by, 80, 20).build());
-        dbBtn = ButtonWidget.builder(Text.literal("🔍 Database"), b -> {
+        dbBtn = ButtonWidget.builder(Text.literal("🔍 Search Fonts"), b -> {
                     dev.nonprofit.modularbg.background.Hints.markSeen("fontdb");
                     this.client.setScreen(new FontDatabaseScreen(this, slot));
                 })
-                .dimensions(cx + 39, by, 76, 20).build();
+                .dimensions(cx + 39, by, 96, 20).build();
         dbBtn.setTooltip(net.minecraft.client.gui.tooltip.Tooltip.of(Text.literal(
                 "Browse a database of 10,000+ free font styles (Google Fonts, all open source) and import any in one click")));
         addDrawableChild(dbBtn);
         addDrawableChild(ButtonWidget.builder(Text.literal("Done"), b -> this.close())
-                .dimensions(cx + 118, by, 56, 20).build());
+                .dimensions(cx + 139, by, 56, 20).build());
     }
 
     private int rowAt(int my) {
@@ -109,6 +109,13 @@ public class FontPickScreen extends Screen {
         if (dbBtn != null && dev.nonprofit.modularbg.background.Hints.shouldShow("fontdb"))
             dev.nonprofit.modularbg.background.Hints.breathe(ctx, dbBtn.getX(), dbBtn.getY(),
                     dbBtn.getWidth(), dbBtn.getHeight());
+    }
+
+    @Override
+    public boolean mouseScrolled(double mouseX, double mouseY, double horizontal, double vertical) {
+        if (vertical < 0 && (page + 1) * perPage < fonts.size()) page++;
+        else if (vertical > 0 && page > 0) page--;
+        return true;
     }
 
     @Override

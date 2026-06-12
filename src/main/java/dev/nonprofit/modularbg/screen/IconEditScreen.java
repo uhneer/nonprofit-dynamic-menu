@@ -37,7 +37,7 @@ public class IconEditScreen extends Screen {
         int cx = this.width / 2, by = this.height - 30;
         addDrawableChild(ButtonWidget.builder(Text.literal("Choose Image…"), b -> choose())
                 .dimensions(cx - 210, by, 100, 20).build());
-        dbBtn = ButtonWidget.builder(Text.literal("🔍 Icon Database"), b -> {
+        dbBtn = ButtonWidget.builder(Text.literal("🔍 Search Icons"), b -> {
                     dev.nonprofit.modularbg.background.Hints.markSeen("icondb");
                     this.client.setScreen(new IconDatabaseScreen(this, slot));
                 })
@@ -53,7 +53,22 @@ public class IconEditScreen extends Screen {
 
     private void choose() {
         String picked = NonprofitBackgrounds.openFilePicker();
-        if (picked != null) IconStore.setIcon(slot, picked);
+        if (picked == null) return;
+        // Wrong shape or huge source → offer an interactive crop instead of silently stretching.
+        try {
+            var path = java.nio.file.Paths.get(picked);
+            var dims = javax.imageio.ImageIO.read(path.toFile());
+            if (dims != null) {
+                boolean match = (long) dims.getWidth() * slotH == (long) dims.getHeight() * slotW;
+                boolean huge = dims.getWidth() > 2048 || dims.getHeight() > 2048;
+                if (!match || huge) {
+                    this.client.setScreen(new ImageCropScreen(this, path, slotW, slotH,
+                            tmp -> IconStore.setIcon(slot, tmp.toString())));
+                    return;
+                }
+            }
+        } catch (Throwable ignored) { }
+        IconStore.setIcon(slot, picked);
     }
 
     @Override

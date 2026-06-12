@@ -187,13 +187,12 @@ public final class FontStore {
     // ── per-background title layout (stored alongside fonts, so it travels with skins) ────
 
     /**
-     * "left" (column, the classic), "center" (brand + PLAY centered, grid below), or "custom"
-     * (left base + the user's dragged positions; dragging is only allowed in this mode).
+     * "left" (column, the classic) or "custom" (left base + the user's dragged positions;
+     * dragging is only allowed in this mode). Legacy "center" skins fall back to left.
      */
     public static String layoutFor(String bgKey) {
         try {
-            String v = load(bgKey).get("layout");
-            return ("center".equals(v) || "custom".equals(v)) ? v : "left";
+            return "custom".equals(load(bgKey).get("layout")) ? "custom" : "left";
         } catch (Throwable t) {
             return "left";
         }
@@ -201,10 +200,9 @@ public final class FontStore {
 
     public static String layout() { return layoutFor(IconStore.currentBgKey()); }
 
-    /** Cycle the current background's layout left → center → custom; returns the new value. */
+    /** Toggle the current background's layout left ↔ custom; returns the new value. */
     public static String cycleLayout(String bgKey) {
-        String cur = layoutFor(bgKey);
-        String next = switch (cur) { case "left" -> "center"; case "center" -> "custom"; default -> "left"; };
+        String next = "custom".equals(layoutFor(bgKey)) ? "left" : "custom";
         Map<String, String> m = load(bgKey);
         if ("left".equals(next)) m.remove("layout");
         else m.put("layout", next);
@@ -598,18 +596,38 @@ public final class FontStore {
         return null;
     }
 
-    /** Enables the nonprofit-fonts pack (if not already) and reloads resources. */
+    /**
+     * Enables the nonprofit-fonts pack (if not already) and reloads resources. ALWAYS reloads —
+     * even when the pack id can't be matched or is already enabled — because a just-written font
+     * file only registers after a resource reload (the old early-return here was why new fonts
+     * sometimes needed a manual pack-screen visit to show up).
+     */
     public static void enablePackAndReload() {
         try {
             MinecraftClient mc = MinecraftClient.getInstance();
             var rpm = mc.getResourcePackManager();
             rpm.scanPacks();
-            String id = "file/nonprofit-fonts";
-            if (!rpm.getIds().contains(id)) return;
-            java.util.List<String> enabled = new java.util.ArrayList<>(rpm.getEnabledIds());
-            if (!enabled.contains(id)) enabled.add(id);
-            rpm.setEnabledProfiles(enabled);
-            mc.options.refreshResourcePacks(rpm);   // syncs options + reloads resources
-        } catch (Throwable ignored) { }
+            // Match the profile defensively: ids are usually "file/<folder>" but don't bet on it.
+            String id = null;
+            for (String s : rpm.getIds())
+                if (s.equals("file/nonprofit-fonts") || s.endsWith("nonprofit-fonts")) { id = s; break; }
+            if (id != null) {
+                java.util.List<String> enabled = new java.util.ArrayList<>(rpm.getEnabledIds());
+                if (!enabled.contains(id)) {
+                    enabled.add(id);
+                    rpm.setEnabledProfiles(enabled);
+                    mc.options.refreshResourcePacks(rpm);   // selection changed → this reloads
+                } else {
+                    // Pack already enabled: refreshResourcePacks would see no change and skip the
+                    // reload, leaving the new font file unregistered. Reload explicitly.
+                    mc.reloadResources();
+                }
+            } else {
+                ModularBackgrounds.LOGGER.warn("[Fonts] nonprofit-fonts pack not in scan results; forcing a reload");
+                mc.reloadResources();
+            }
+        } catch (Throwable t) {
+            ModularBackgrounds.LOGGER.warn("[Fonts] pack enable/reload failed", t);
+        }
     }
 }

@@ -79,6 +79,7 @@ public class FontDatabaseScreen extends Screen {
     private TextFieldWidget search;
     private int cat = 0;
     private double scroll = 0;
+    private boolean barDrag = false;
     private final List<int[]> chipBoxes = new ArrayList<>();
 
     public FontDatabaseScreen(Screen parent, String slot) {
@@ -364,9 +365,35 @@ public class FontDatabaseScreen extends Screen {
         t.start();
     }
 
+    /** Jump/drag the scrollbar thumb to a mouse y. */
+    private void barScrollTo(double my) {
+        int top = 72, bottom = this.height - 34, viewH = bottom - top;
+        int contentH = shown.size() * ROW_H;
+        if (contentH <= viewH) return;
+        scroll = Math.max(0, Math.min(contentH - viewH, (my - top) / viewH * contentH - viewH / 2.0));
+    }
+
+    @Override
+    public boolean mouseDragged(Click click, double offsetX, double offsetY) {
+        if (barDrag) { barScrollTo(click.y()); return true; }
+        return super.mouseDragged(click, offsetX, offsetY);
+    }
+
+    @Override
+    public boolean mouseReleased(Click click) {
+        barDrag = false;
+        return super.mouseReleased(click);
+    }
+
     @Override
     public boolean mouseClicked(Click click, boolean doubled) {
         int mx = (int) click.x(), my = (int) click.y();
+        int bx = this.width / 2 + Math.min(this.width - 24, 440) / 2;
+        if (mx >= bx + 2 && mx < bx + 12 && my >= 72 && my < this.height - 34) {
+            barDrag = true;
+            barScrollTo(my);
+            return true;
+        }
         for (int[] c : chipBoxes) {
             if (mx >= c[0] && mx < c[0] + c[2] && my >= c[1] && my < c[1] + 14) {
                 cat = c[3];

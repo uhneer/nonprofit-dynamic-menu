@@ -54,6 +54,7 @@ public class SimpleModsScreen extends Screen {
     private final Set<String> pending = new HashSet<>();   // ids with un-restarted enable/disable
 
     private TextFieldWidget search;
+    private boolean barDrag = false;
     private int filter = 0;                                // 0 all, 1 enabled, 2 disabled
     private double scroll = 0;
     private final List<int[]> rowButtons = new ArrayList<>(); // [x,y,entryIndexInShown]
@@ -177,20 +178,26 @@ public class SimpleModsScreen extends Screen {
 
             drawModIcon(ctx, e, x + 4, y + 4);
             int tx = x + 28;
+            int textW = w - 28 - 66;   // keep clear of the Enable/Disable button — no bleed
             String nm = (e.enabled() ? "" : "§8") + e.name() + " §8" + e.version()
-                    + (pending.contains(e.id()) ? " §e(restart)" : "");
-            ctx.drawTextWithShadow(tr, Text.literal(nm), tx, y + 4, 0xFFFFFFFF);
-            ctx.drawTextWithShadow(tr, Text.literal("§7" + e.desc()), tx, y + 15, 0xFFAAAAAA);
+                    + (queued.contains(e.id()) ? " §e(disables on quit)"
+                       : pending.contains(e.id()) ? " §e(restart)" : "");
+            ctx.drawTextWithShadow(tr, Text.literal(tr.trimToWidth(nm, textW)), tx, y + 4, 0xFFFFFFFF);
+            ctx.drawTextWithShadow(tr, Text.literal("§7" + tr.trimToWidth(e.desc(), textW)),
+                    tx, y + 15, 0xFFAAAAAA);
 
-            // Enable/Disable pseudo-button at the right.
+            // Enable/Disable pseudo-button at the right (protected core mods get a tag instead).
             boolean prot = PROTECTED.contains(e.id()) || (e.enabled() && e.jar() == null);
             if (!prot) {
                 int bx = x + w - 58, by = y + 5, bw = 52, bh = 16;
                 boolean bHov = mouseX >= bx && mouseX < bx + bw && mouseY >= by && mouseY < by + bh;
+                boolean q = queued.contains(e.id()) || pending.contains(e.id());
                 ctx.fill(bx, by, bx + bw, by + bh, bHov ? 0xCC333344 : 0xAA22222C);
-                String lbl = e.enabled() ? "§cDisable" : "§aEnable";
+                String lbl = q ? "§eUndo" : e.enabled() ? "§cDisable" : "§aEnable";
                 ctx.drawCenteredTextWithShadow(tr, Text.literal(lbl), bx + bw / 2, by + 4, 0xFFFFFFFF);
                 rowButtons.add(new int[]{ bx, by, i });
+            } else {
+                ctx.drawTextWithShadow(tr, Text.literal("§8core"), x + w - 34, y + 9, 0xFFFFFFFF);
             }
         }
         ctx.disableScissor();
@@ -266,10 +273,28 @@ public class SimpleModsScreen extends Screen {
 
     private void toggle(Entry e) {
         try {
+            // Clicking again on a queued-at-exit disable cancels it.
+            if (queued.contains(e.id())) {
+                String j = e.jar() == null ? "" : e.jar().toString();
+                synchronized (SimpleModsScreen.class) { exitRenames.removeIf(r -> r[0].equals(j)); }
+                queued.remove(e.id());
+                pending.remove(e.id());
+                scan();
+                return;
+            }
             Path modsDir = MinecraftClient.getInstance().runDirectory.toPath().resolve("mods");
             if (e.enabled()) {
                 if (e.jar() == null) return;
-                Files.move(e.jar(), e.jar().resolveSibling(e.jar().getFileName() + ".disabled"));
+                Path to = e.jar().resolveSibling(e.jar().getFileName() + ".disabled");
+                try {
+                    Files.move(e.jar(), to);
+                } catch (Throwable locked) {
+                    // Windows: the JVM holds loaded jars open, so the rename fails with a sharing
+                    // violation. Queue it to run right AFTER the game process exits instead — this
+                    // is what makes Disable actually work standalone on Windows.
+                    scheduleExitRename(e.jar(), to);
+                    queued.add(e.id());
+                }
             } else {
                 String fn = e.jar().getFileName().toString();
                 Files.move(e.jar(), modsDir.resolve(fn.substring(0, fn.length() - ".disabled".length())));
@@ -281,9 +306,66 @@ public class SimpleModsScreen extends Screen {
         }
     }
 
+    // ── deferred renames for jars the running JVM has locked (Windows) ──────────────────────
+    private static final List<String[]> exitRenames = new ArrayList<>();
+    private static final Set<String> queued = new HashSet<>();   // ids renamed at exit
+    private static boolean hookInstalled = false;
+
+    private static synchronized void scheduleExitRename(Path from, Path to) {
+        exitRenames.add(new String[]{ from.toString(), to.toString() });
+        if (hookInstalled) return;
+        hookInstalled = true;
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            try {
+                boolean win = System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
+                if (win) {
+                    // A detached batch file waits for the JVM to die, then renames and self-deletes.
+                    StringBuilder sb = new StringBuilder("@echo off\r\ntimeout /t 2 /nobreak >nul\r\n");
+                    for (String[] r : exitRenames)
+                        sb.append("move /Y \"").append(r[0]).append("\" \"").append(r[1]).append("\"\r\n");
+                    sb.append("del \"%~f0\"\r\n");
+                    Path bat = Files.createTempFile("ndm-mod-toggle", ".bat");
+                    Files.write(bat, sb.toString().getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+                    new ProcessBuilder("cmd", "/c", "start", "", "/min", bat.toString()).start();
+                } else {
+                    for (String[] r : exitRenames)                 // POSIX renames open files fine
+                        Files.move(Path.of(r[0]), Path.of(r[1]),
+                                java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                }
+            } catch (Throwable t) {
+                ModularBackgrounds.LOGGER.warn("[Mods] exit rename failed", t);
+            }
+        }, "ndm-mod-toggle"));
+    }
+
+    private void barScrollTo(double my) {
+        int top = 54, bottom = this.height - (pending.isEmpty() ? 34 : 48), viewH = bottom - top;
+        int contentH = shown.size() * ROW_H;
+        if (contentH <= viewH) return;
+        scroll = Math.max(0, Math.min(contentH - viewH, (my - top) / viewH * contentH - viewH / 2.0));
+    }
+
+    @Override
+    public boolean mouseDragged(Click click, double offsetX, double offsetY) {
+        if (barDrag) { barScrollTo(click.y()); return true; }
+        return super.mouseDragged(click, offsetX, offsetY);
+    }
+
+    @Override
+    public boolean mouseReleased(Click click) {
+        barDrag = false;
+        return super.mouseReleased(click);
+    }
+
     @Override
     public boolean mouseClicked(Click click, boolean doubled) {
         int mx = (int) click.x(), my = (int) click.y();
+        int bx = this.width / 2 + Math.min(this.width - 24, 460) / 2;
+        if (mx >= bx + 2 && mx < bx + 12 && my >= 54 && my < this.height - 34) {
+            barDrag = true;
+            barScrollTo(my);
+            return true;
+        }
         for (int[] b : rowButtons) {
             if (mx >= b[0] && mx < b[0] + 52 && my >= b[1] && my < b[1] + 16) {
                 if (b[2] < shown.size()) toggle(shown.get(b[2]));

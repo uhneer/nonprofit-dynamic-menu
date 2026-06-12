@@ -65,6 +65,7 @@ public class IconDatabaseScreen extends Screen {
     private volatile boolean importing = false;
 
     private TextFieldWidget search;
+    private boolean barDrag = false;
     private String setFilter = null;                 // index prefix, null = All
     private List<String[]> sets = new ArrayList<>(); // [prefix, displayName] present in the index
     private double scroll = 0;
@@ -289,9 +290,40 @@ public class IconDatabaseScreen extends Screen {
         t.start();
     }
 
+    private int contentH() {
+        int w = Math.min(this.width - 24, 440);
+        int cols = Math.max(1, w / (CELL + PAD));
+        return ((shown.size() + cols - 1) / cols) * (CELL + PAD);
+    }
+
+    private void barScrollTo(double my) {
+        int top = 72, bottom = this.height - 34, viewH = bottom - top;
+        int contentH = contentH();
+        if (contentH <= viewH) return;
+        scroll = Math.max(0, Math.min(contentH - viewH, (my - top) / viewH * contentH - viewH / 2.0));
+    }
+
+    @Override
+    public boolean mouseDragged(Click click, double offsetX, double offsetY) {
+        if (barDrag) { barScrollTo(click.y()); return true; }
+        return super.mouseDragged(click, offsetX, offsetY);
+    }
+
+    @Override
+    public boolean mouseReleased(Click click) {
+        barDrag = false;
+        return super.mouseReleased(click);
+    }
+
     @Override
     public boolean mouseClicked(Click click, boolean doubled) {
         int mx = (int) click.x(), my = (int) click.y();
+        int bx = this.width / 2 + Math.min(this.width - 24, 440) / 2;
+        if (mx >= bx + 2 && mx < bx + 12 && my >= 72 && my < this.height - 34) {
+            barDrag = true;
+            barScrollTo(my);
+            return true;
+        }
         for (Object[] c : chipBoxes) {
             int x = (int) c[0], y = (int) c[1], w = (int) c[2];
             if (mx >= x && mx < x + w && my >= y && my < y + 14) {

@@ -102,7 +102,7 @@ public class EditOverlayScreen extends Screen {
             this.clearAndInit();
         }).dimensions(cx - 99, by, 110, 20).build();
         lay.setTooltip(Tooltip.of(Text.literal(
-                "Left column / Centered showcase / Custom — in Custom you can drag every element wherever you want")));
+                "Left column or Custom — in Custom you can drag every element wherever you want")));
         addDrawableChild(lay);
 
         if (custom) {
@@ -130,9 +130,7 @@ public class EditOverlayScreen extends Screen {
     private String musicKey() { return bgName.isEmpty() ? "default" : bgName; }
 
     private Text layoutLabel() {
-        String l = FontStore.layoutFor(bgKey);
-        return Text.literal("Layout: " + switch (l) {
-            case "center" -> "Centered"; case "custom" -> "Custom"; default -> "Left"; });
+        return Text.literal("Layout: " + ("custom".equals(FontStore.layoutFor(bgKey)) ? "Custom" : "Left"));
     }
 
     private Text snapLabel() {
@@ -244,10 +242,8 @@ public class EditOverlayScreen extends Screen {
         String hovered = null;
         if (dragSlot != null) {
             hovered = activePart;                       // keep while dragging
-        } else if (activePart != null && stripRect != null
-                && mouseX >= stripRect[0] - 2 && mouseX < stripRect[0] + stripRect[2] + 2
-                && mouseY >= stripRect[1] - 8 && mouseY < stripRect[1] + stripRect[3] + 2) {
-            hovered = activePart;                       // cursor is on (or just above) the strip
+        } else if (activePart != null && stripRect != null && inUnion(mouseX, mouseY)) {
+            hovered = activePart;                       // cursor between the part and its strip
         } else {
             for (var e : labelHit.entrySet())
                 if (in(mouseX, mouseY, e.getValue())) hovered = e.getKey() + "|label";
@@ -278,7 +274,6 @@ public class EditOverlayScreen extends Screen {
             boolean isIcon = activePart.endsWith("|icon");
             int[] r = (isIcon ? iconHit : labelHit).get(slot);
             if (r != null && in(mouseX, mouseY, r)) {
-                ctx.drawTextWithShadow(tr, Text.literal("§e👆"), mouseX + 8, mouseY - 2, 0xFFFFFFFF);
                 if (System.currentTimeMillis() - hoverSince > 2000) {
                     String tip = isIcon ? "click to change this icon" : "click to change this font";
                     if (custom) tip += " — drag to move";
@@ -297,10 +292,18 @@ public class EditOverlayScreen extends Screen {
         if (r == null) { activePart = null; stripRect = null; return; }
 
         List<Object[]> strip = new ArrayList<>();   // [label, tooltip, action]
-        if (icon && !slot.equals("version")) {
-            strip.add(new Object[]{ "−", "smaller icon", (Runnable) () -> FontStore.adjustIconSize(slot, -0.1f) });
-            strip.add(new Object[]{ "＋", "bigger icon", (Runnable) () -> FontStore.adjustIconSize(slot, +0.1f) });
-        } else if (!icon) {
+        if (icon) {
+            // The brand bar resizes too — its whole box follows the multiplier (aspect preserved).
+            String what = slot.equals("version") ? "brand bar" : "icon";
+            strip.add(new Object[]{ "−", "smaller " + what, (Runnable) () -> {
+                FontStore.adjustIconSize(slot, -0.1f);
+                boxes = TitleLayout.compute(bgKey, this.width, this.height);
+            } });
+            strip.add(new Object[]{ "＋", "bigger " + what, (Runnable) () -> {
+                FontStore.adjustIconSize(slot, +0.1f);
+                boxes = TitleLayout.compute(bgKey, this.width, this.height);
+            } });
+        } else {
             strip.add(new Object[]{ "−", "smaller text", (Runnable) () -> FontStore.adjustSize(slot, -0.1f) });
             strip.add(new Object[]{ "＋", "bigger text", (Runnable) () -> FontStore.adjustSize(slot, +0.1f) });
             if (!slot.equals("versiontag"))
@@ -351,6 +354,23 @@ public class EditOverlayScreen extends Screen {
 
     private static boolean in(int mx, int my, int[] r) {
         return mx >= r[0] - 2 && mx < r[0] + r[2] + 2 && my >= r[1] - 2 && my < r[1] + r[3] + 2;
+    }
+
+    /**
+     * The sticky region for the active part: the BOUNDING BOX of the part and its strip, so the
+     * cursor can travel from one to the other in any direction (strip above, below, offset to the
+     * side) without the strip vanishing mid-way.
+     */
+    private boolean inUnion(int mx, int my) {
+        if (activePart == null || stripRect == null) return false;
+        String slot = activePart.substring(0, activePart.indexOf('|'));
+        int[] part = (activePart.endsWith("|icon") ? iconHit : labelHit).get(slot);
+        if (part == null) return false;
+        int x0 = Math.min(part[0], stripRect[0]) - 3;
+        int y0 = Math.min(part[1], stripRect[1]) - 3;
+        int x1 = Math.max(part[0] + part[2], stripRect[0] + stripRect[2]) + 3;
+        int y1 = Math.max(part[1] + part[3], stripRect[1] + stripRect[3]) + 3;
+        return mx >= x0 && mx < x1 && my >= y0 && my < y1;
     }
 
     private void rename(String slot) {

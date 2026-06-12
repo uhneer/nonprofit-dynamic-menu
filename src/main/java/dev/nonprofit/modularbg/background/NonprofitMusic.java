@@ -81,14 +81,28 @@ public final class NonprofitMusic {
         return dot > 0 ? storedName.substring(0, dot) : storedName;
     }
 
-    /** Copy the picked ogg into the music folder and associate it with the background. */
+    /**
+     * Install a picked audio file and associate it with the background. OGG and WAV are copied
+     * as-is; MP4/M4A get their AAC track decoded ONCE into a 16-bit WAV next to them (this is how
+     * "use this video's audio as the menu music" works — pick the .mp4 itself).
+     */
     public static String setMusicFor(String bgKey, String sourcePath) {
         try {
             if (musicFolder == null || sourcePath == null || sourcePath.isEmpty()) return null;
             Path src = Paths.get(sourcePath);
             if (!Files.exists(src)) return null;
             String name = src.getFileName().toString();
-            Files.copy(src, musicFolder.resolve(name), StandardCopyOption.REPLACE_EXISTING);
+            String lower = name.toLowerCase(java.util.Locale.ROOT);
+            if (lower.endsWith(".mp4") || lower.endsWith(".m4a") || lower.endsWith(".aac")) {
+                String wavName = name.replaceAll("\\.[^.]+$", "") + ".wav";
+                if (!aacToWav(src, musicFolder.resolve(wavName))) {
+                    ModularBackgrounds.LOGGER.warn("[Music] no decodable AAC audio in {}", name);
+                    return null;
+                }
+                name = wavName;
+            } else {
+                Files.copy(src, musicFolder.resolve(name), StandardCopyOption.REPLACE_EXISTING);
+            }
             assoc.setProperty(key(bgKey), name);
             persist();
             // if this background is the active one, force a restart so it plays now
@@ -134,14 +148,71 @@ public final class NonprofitMusic {
 
     public static String pickOgg() {
         try (MemoryStack stack = MemoryStack.stackPush()) {
-            PointerBuffer filters = stack.mallocPointer(1);
+            PointerBuffer filters = stack.mallocPointer(5);
             filters.put(stack.UTF8("*.ogg"));
+            filters.put(stack.UTF8("*.wav"));
+            filters.put(stack.UTF8("*.mp4"));
+            filters.put(stack.UTF8("*.m4a"));
+            filters.put(stack.UTF8("*.aac"));
             filters.flip();
             return TinyFileDialogs.tinyfd_openFileDialog(
-                    "Select menu music (.ogg)", "", filters, "OGG audio (*.ogg)", false);
+                    "Select menu music (ogg / wav / mp4 / m4a)", "", filters,
+                    "Audio (*.ogg, *.wav, *.mp4, *.m4a)", false);
         } catch (Throwable t) {
             ModularBackgrounds.LOGGER.warn("[Music] file picker unavailable", t);
             return null;
+        }
+    }
+
+    /** Decode an MP4/M4A's AAC track to a 16-bit little-endian WAV (JCodec demux + JAAD). */
+    private static boolean aacToWav(Path src, Path dstWav) {
+        try (var ch = org.jcodec.common.io.NIOUtils.readableChannel(src.toFile())) {
+            var dx = org.jcodec.containers.mp4.demuxer.MP4Demuxer.createMP4Demuxer(ch);
+            for (var at : dx.getAudioTracks()) {
+                var m = at.getMeta();
+                if (m == null || m.getCodec() != org.jcodec.common.Codec.AAC) continue;
+                java.nio.ByteBuffer ascBuf = m.getCodecPrivate();
+                if (ascBuf == null) continue;
+                byte[] asc = new byte[ascBuf.remaining()];
+                ascBuf.duplicate().get(asc);
+                var dec = new net.sourceforge.jaad.aac.Decoder(asc);
+                var sb = new net.sourceforge.jaad.aac.SampleBuffer();
+                var pcm = new java.io.ByteArrayOutputStream(1 << 20);
+                int rate = 0, chn = 0;
+                org.jcodec.common.model.Packet pkt;
+                while ((pkt = at.nextFrame()) != null) {
+                    java.nio.ByteBuffer d = pkt.getData();
+                    byte[] aac = new byte[d.remaining()];
+                    d.duplicate().get(aac);
+                    try { dec.decodeFrame(aac, sb); } catch (Throwable e) { continue; }
+                    if (sb.isBigEndian()) sb.setBigEndian(false);
+                    pcm.write(sb.getData());
+                    rate = sb.getSampleRate();
+                    chn = sb.getChannels();
+                }
+                if (pcm.size() > 0 && rate > 0 && chn >= 1 && chn <= 2) {
+                    writeWav(dstWav, pcm.toByteArray(), rate, chn);
+                    ModularBackgrounds.LOGGER.info("[Music] extracted {} Hz {} ch audio from {}",
+                            rate, chn, src.getFileName());
+                    return true;
+                }
+            }
+        } catch (Throwable t) {
+            ModularBackgrounds.LOGGER.warn("[Music] aac extract failed for {}", src.getFileName(), t);
+        }
+        return false;
+    }
+
+    /** Minimal RIFF/WAVE writer for 16-bit LE PCM. */
+    private static void writeWav(Path dst, byte[] pcm, int rate, int channels) throws Exception {
+        java.nio.ByteBuffer h = java.nio.ByteBuffer.allocate(44).order(java.nio.ByteOrder.LITTLE_ENDIAN);
+        h.put("RIFF".getBytes()).putInt(36 + pcm.length).put("WAVE".getBytes());
+        h.put("fmt ".getBytes()).putInt(16).putShort((short) 1).putShort((short) channels)
+         .putInt(rate).putInt(rate * channels * 2).putShort((short) (channels * 2)).putShort((short) 16);
+        h.put("data".getBytes()).putInt(pcm.length);
+        try (var out = Files.newOutputStream(dst)) {
+            out.write(h.array());
+            out.write(pcm);
         }
     }
 
@@ -202,6 +273,42 @@ public final class NonprofitMusic {
     }
 
     private static void playLoop(Path file) {
+        if (file.toString().toLowerCase(java.util.Locale.ROOT).endsWith(".wav")) {
+            playWavLoop(file);
+            return;
+        }
+        playOggLoop(file);
+    }
+
+    /** Looping playback for WAV (javax.sound streaming; reopened at EOF for a gapless-ish loop). */
+    private static void playWavLoop(Path file) {
+        SourceDataLine line = null;
+        try {
+            AudioFormat fmt;
+            try (var in = AudioSystem.getAudioInputStream(file.toFile())) { fmt = in.getFormat(); }
+            line = AudioSystem.getSourceDataLine(fmt);
+            line.open(fmt, 1 << 15);
+            line.start();
+            FloatControl gain = line.isControlSupported(FloatControl.Type.MASTER_GAIN)
+                    ? (FloatControl) line.getControl(FloatControl.Type.MASTER_GAIN) : null;
+            byte[] buf = new byte[1 << 14];
+            while (running) {
+                try (var in = AudioSystem.getAudioInputStream(file.toFile())) {
+                    int n;
+                    while (running && (n = in.read(buf)) > 0) {
+                        if (gain != null) applyVolume(gain);
+                        line.write(buf, 0, n);
+                    }
+                }
+            }
+        } catch (Throwable t) {
+            warnOnce("wav playback error: " + t);
+        } finally {
+            try { if (line != null) { line.stop(); line.flush(); line.close(); } } catch (Throwable ignored) {}
+        }
+    }
+
+    private static void playOggLoop(Path file) {
         long handle = 0L;
         SourceDataLine line = null;
         try {

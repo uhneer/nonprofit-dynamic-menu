@@ -66,6 +66,14 @@ public class BackgroundCarouselScreen extends Screen {
         py = 44;
         int cx = this.width / 2;
 
+        var kofi = ButtonWidget.builder(Text.literal("§d♥ Support Me"), b -> {
+            try {
+                net.minecraft.util.Util.getOperatingSystem().open(new java.net.URI("https://ko-fi.com/nonprofitism"));
+            } catch (Throwable ignored) { }
+        }).dimensions(this.width - 92, 6, 86, 18).build();
+        kofi.setTooltip(Tooltip.of(Text.literal("ko-fi.com/nonprofitism — thank you!")));
+        addDrawableChild(kofi);
+
         addDrawableChild(ButtonWidget.builder(Text.literal("◄"), b -> { if (idx > 0) { idx--; clearAndInit(); } })
                 .dimensions(px - 30, py + ph / 2 - 12, 24, 24).build());
         addDrawableChild(ButtonWidget.builder(Text.literal("►"), b -> { if (idx < addIndex()) { idx++; clearAndInit(); } })
@@ -115,10 +123,9 @@ public class BackgroundCarouselScreen extends Screen {
                     }
                 }).dimensions(x0 + (bw + gap) * 2, row1, bw, 20).build());
 
-                addDrawableChild(ButtonWidget.builder(Text.literal("Export"), b -> {
-                    String dest = BackgroundPackage.pickExportZip(currentName().replaceAll("\\.[^.]+$", ""));
-                    if (dest != null) BackgroundPackage.export(currentName(), dest);
-                }).dimensions(x0 + (bw + gap) * 3, row1, bw, 20).build());
+                addDrawableChild(ButtonWidget.builder(Text.literal("Export"),
+                        b -> this.client.setScreen(new ExportSkinScreen(this, currentName())))
+                        .dimensions(x0 + (bw + gap) * 3, row1, bw, 20).build());
 
                 boolean canDelete = files.size() >= 2;
                 deleteBtn = ButtonWidget.builder(Text.literal("§cDelete"), b -> onDelete())
@@ -132,17 +139,13 @@ public class BackgroundCarouselScreen extends Screen {
         }
 
         int by = this.height - 26;
-        var impF = ButtonWidget.builder(Text.literal("Import File"), b -> {
-            String zip = BackgroundPackage.pickImportZip();
-            if (zip != null) {
-                String n = BackgroundPackage.importZip(zip);
-                files = NonprofitBackgrounds.available();
-                int i = n == null ? -1 : files.indexOf(n);
-                idx = i >= 0 ? i + 1 : 0;
-                clearAndInit();
-            }
-        }).dimensions(cx - 196, by, 92, 20).build();
-        impF.setTooltip(Tooltip.of(Text.literal("Import a shared skin from a .zip on your computer")));
+        var impF = ButtonWidget.builder(Text.literal("Import Skin"),
+                b -> this.client.setScreen(new ImportSkinScreen(this, n -> {
+                    files = NonprofitBackgrounds.available();
+                    int i = n == null ? -1 : files.indexOf(n);
+                    idx = i >= 0 ? i + 1 : 0;
+                }))).dimensions(cx - 196, by, 92, 20).build();
+        impF.setTooltip(Tooltip.of(Text.literal("Import a shared skin from a .zip or a skin code")));
         addDrawableChild(impF);
 
         var db = ButtonWidget.builder(Text.literal("🌐 Skin Hub"),
@@ -244,23 +247,10 @@ public class BackgroundCarouselScreen extends Screen {
         else ctx.fill(0, 0, VW, VH, 0xFF000000);
 
         String layout = FontStore.layoutFor(bg);
-        if ("center".equals(layout)) {
-            int th = Math.max(1, VH / 4);
-            for (int y = 0; y < th; y++) {
-                int a = (int) ((1f - y / (float) th) * 95f);
-                if (a > 0) ctx.fill(0, y, VW, y + 1, a << 24);
-            }
-            int bh = Math.max(1, VH / 3);
-            for (int y = 0; y < bh; y++) {
-                int a = (int) ((y / (float) bh) * 110f);
-                if (a > 0) ctx.fill(0, VH - bh + y, VW, VH - bh + y + 1, a << 24);
-            }
-        } else {
-            int gw = Math.max(1, VW / 3);
-            for (int x = 0; x < gw; x++) {
-                int a = (int) ((1f - x / (float) gw) * 100f);
-                if (a > 0) ctx.fill(x, 0, x + 1, VH, a << 24);
-            }
+        int gw = Math.max(1, VW / 3);
+        for (int x = 0; x < gw; x++) {
+            int a = (int) ((1f - x / (float) gw) * 100f);
+            if (a > 0) ctx.fill(x, 0, x + 1, VH, a << 24);
         }
 
         Map<String, TitleLayout.Box> boxes = TitleLayout.compute(bg, VW, VH);
@@ -328,14 +318,11 @@ public class BackgroundCarouselScreen extends Screen {
         int mx = (int) click.x(), my = (int) click.y();
         if (mx >= px && mx < px + pw && my >= py && my < py + ph) {
             if (isAdd()) {
-                String picked = NonprofitBackgrounds.openFilePicker();
-                if (picked != null) {
-                    String name = NonprofitBackgrounds.importAndSelect(picked);
+                this.client.setScreen(new AddBackgroundScreen(this, name -> {
                     files = NonprofitBackgrounds.available();
                     int i = name == null ? -1 : files.indexOf(name);
                     idx = i >= 0 ? i + 1 : 0;
-                    clearAndInit();
-                }
+                }));
             } else {
                 NonprofitBackgrounds.select(currentName());
                 clearAndInit();
