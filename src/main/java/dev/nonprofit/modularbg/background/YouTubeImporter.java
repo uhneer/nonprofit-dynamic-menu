@@ -63,13 +63,22 @@ public final class YouTubeImporter {
             if (ytdlp == null) return null;
 
             status.accept("checking the video...");
+            // stderr is merged into the capture, so warnings/progress lines surround the print —
+            // find OUR sentinel line instead of trusting the first line (the v1.4.0 bug).
             String meta = capture(ytdlp.toString(), "--no-playlist", "--skip-download",
-                    "--print", "%(duration)s|%(title)s", url);
-            String first = meta == null ? null : meta.lines().findFirst().orElse(null);
-            if (first == null || !first.contains("|")) { status.accept("§ccouldn't read that video (private? wrong link?)"); return null; }
+                    "--print", "NDM::%(duration)s::%(title)s", url);
+            String probe = null;
+            if (meta != null)
+                probe = meta.lines().filter(l -> l.startsWith("NDM::")).findFirst().orElse(null);
+            if (probe == null) {
+                ModularBackgrounds.LOGGER.warn("[YT] probe failed for {} — yt-dlp said:\n{}", url, meta);
+                status.accept("§ccouldn't read that video (private? region-locked? see latest.log)");
+                return null;
+            }
+            String[] parts = probe.substring(5).split("::", 2);
             double dur;
-            try { dur = Double.parseDouble(first.substring(0, first.indexOf('|')).trim()); }
-            catch (Throwable e) { dur = -1; }
+            try { dur = Double.parseDouble(parts[0].trim()); }
+            catch (Throwable e) { dur = -1; }      // "NA" (live/premiere) → let the download filter decide
             if (dur > MAX_SECONDS) {
                 status.accept("§cthat video is " + Math.round(dur / 60) + " min — the limit is 10 minutes");
                 return null;
@@ -94,9 +103,12 @@ public final class YouTubeImporter {
 
             status.accept("downloading...");
             Process p = new ProcessBuilder(args).redirectErrorStream(true).start();
+            StringBuilder tail = new StringBuilder();        // kept for the log if anything fails
             try (BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
                 String line;
                 while ((line = r.readLine()) != null) {
+                    tail.append(line).append('\n');
+                    if (tail.length() > 8000) tail.delete(0, tail.length() - 6000);
                     if (line.contains("%")) {
                         int i = line.indexOf("[download]");
                         status.accept("downloading " + (i >= 0 ? line.substring(i + 10).trim() : line.trim()));
@@ -105,7 +117,11 @@ public final class YouTubeImporter {
                     }
                 }
             }
-            if (p.waitFor() != 0) { status.accept("§cdownload failed (see log)"); return null; }
+            if (p.waitFor() != 0) {
+                ModularBackgrounds.LOGGER.warn("[YT] download failed for {} — yt-dlp said:\n{}", url, tail);
+                status.accept("§cdownload failed (details in latest.log)");
+                return null;
+            }
 
             try (DirectoryStream<Path> ds = Files.newDirectoryStream(out, "*.mp4")) {
                 for (Path f : ds) { status.accept("§a✔ downloaded"); return f; }
@@ -182,6 +198,7 @@ public final class YouTubeImporter {
             p.waitFor();
             return out;
         } catch (Throwable t) {
+            ModularBackgrounds.LOGGER.warn("[YT] could not run {}", args.length > 0 ? args[0] : "?", t);
             return null;
         }
     }
