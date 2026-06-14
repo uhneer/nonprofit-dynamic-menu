@@ -1,0 +1,14 @@
+{
+  "name": "ndm-hub",
+  "version": "1.0.0",
+  "private": true,
+  "description": "nDM Skin Hub — Cloudflare Worker backend + Discord moderation",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail"
+  },
+  "devDependencies": {
+    "wrangler": "^3.80.0"
+  }
+}

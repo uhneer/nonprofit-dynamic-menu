@@ -1,0 +1,31 @@
+# nDM Skin Hub — Cloudflare Worker config.
+# Fill in the two ids printed by the `wrangler ... create` commands (see DEPLOY.md), then
+# `wrangler deploy`. Secrets are NOT put here — set them with `wrangler secret put` so they
+# never land in git.
+
+name = "ndm-hub"
+main = "worker.js"
+compatibility_date = "2024-09-23"
+# Ed25519 in Web Crypto (used to verify Discord interactions) needs this flag.
+compatibility_flags = ["nodejs_compat"]
+
+# R2 bucket that stores the actual skin zips (pending/ and accepted/).
+[[r2_buckets]]
+binding = "SKINS"
+bucket_name = "ndm-skins"
+
+# KV namespace for the index, pending/status records, rate-limit counters and favorites.
+[[kv_namespaces]]
+binding = "META"
+id = "PUT_YOUR_KV_NAMESPACE_ID_HERE"
+
+# Recompute favorite counts into the index every 30 minutes.
+[triggers]
+crons = ["*/30 * * * *"]
+
+# Secrets (set with `wrangler secret put NAME`, never committed):
+#   DISCORD_PUBLIC_KEY   – the Discord application's public key (hex), to verify interactions
+#   DISCORD_BOT_TOKEN    – the bot token, to post moderation cards
+#   DISCORD_CHANNEL_ID   – the channel the moderation cards go to
+#   MOD_SECRET           – shared secret for the optional /moderate HTTP path
+#   VOTE_SALT            – any long random string; salts the username+uuid vote hash

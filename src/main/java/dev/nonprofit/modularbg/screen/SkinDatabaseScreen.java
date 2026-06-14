@@ -42,8 +42,8 @@ import java.util.Properties;
  */
 public class SkinDatabaseScreen extends Screen {
 
-    private static final String INDEX_URL =
-            "https://cdn.jsdelivr.net/gh/uhneer/ndm-assets@main/skins/index.json";
+    // The live accepted-skins index, served by the hub worker (see SkinHub.API + hub/worker.js).
+    private static final String INDEX_URL = dev.nonprofit.modularbg.background.SkinHub.API + "/skins";
     public static final String[] CATEGORIES =
             { "Anime", "Gaming", "Landscape", "Nature", "Minimal", "Abstract", "Tech", "Other" };
     private static final int ROW_H = 28;
@@ -137,7 +137,7 @@ public class SkinDatabaseScreen extends Screen {
         addDrawableChild(search);
 
         if (uploadSkin != null && !uploadSkin.isEmpty()) {
-            String st = uploadStatus(uploadSkin);
+            String st = dev.nonprofit.modularbg.background.SkinHub.uploadStatus(uploadSkin);
             Text label = switch (st) {
                 case "pending"  -> Text.literal("§e⏳ Pending review");
                 case "accepted" -> Text.literal("§a✔ Accepted");
@@ -145,7 +145,7 @@ public class SkinDatabaseScreen extends Screen {
                 default          -> Text.literal("⬆ Upload '" + trim(uploadSkin, 14) + "'");
             };
             ButtonWidget up = ButtonWidget.builder(label, b -> {
-                if ("none".equals(uploadStatus(uploadSkin)))
+                if ("none".equals(dev.nonprofit.modularbg.background.SkinHub.uploadStatus(uploadSkin)))
                     this.client.setScreen(new SkinUploadScreen(this, uploadSkin));
             }).dimensions(cx - w / 2, this.height - 26, 150, 20).build();
             up.setTooltip(Tooltip.of(Text.literal(switch (st) {
@@ -357,42 +357,6 @@ public class SkinDatabaseScreen extends Screen {
         int contentH = shown.size() * ROW_H, viewH = this.height - 34 - 72;
         scroll = Math.max(0, Math.min(Math.max(0, contentH - viewH), scroll - vertical * 28));
         return true;
-    }
-
-    // ── local upload records (.uploads/<bgKey>.properties: name, categories, status) ────────
-
-    static Path uploadsDir() {
-        return NonprofitBackgrounds.getFolder().resolve(".uploads");
-    }
-
-    /** "none" / "pending" / "accepted" / "denied" for a background's hub submission. */
-    static String uploadStatus(String bgName) {
-        try {
-            Path f = uploadsDir().resolve(IconStore.keyFor(bgName) + ".properties");
-            if (!Files.exists(f)) return "none";
-            Properties p = new Properties();
-            try (var in = Files.newInputStream(f)) { p.load(in); }
-            return p.getProperty("status", "pending");
-        } catch (Throwable t) {
-            return "none";
-        }
-    }
-
-    static void recordUpload(String bgName, String displayName, List<String> cats) {
-        try {
-            Files.createDirectories(uploadsDir());
-            Properties p = new Properties();
-            p.setProperty("name", displayName);
-            p.setProperty("categories", String.join(",", cats));
-            p.setProperty("status", "pending");
-            p.setProperty("author", MinecraftClient.getInstance().getSession().getUsername());
-            try (var out = Files.newOutputStream(
-                    uploadsDir().resolve(IconStore.keyFor(bgName) + ".properties"))) {
-                p.store(out, "nDM Skin Hub submission");
-            }
-        } catch (Throwable t) {
-            ModularBackgrounds.LOGGER.warn("[SkinHub] could not record upload", t);
-        }
     }
 
     @Override

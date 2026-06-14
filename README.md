@@ -14,7 +14,8 @@ Out of the box you get an animated grass field video with the nDM brand bar. Fro
 - **Per-background icons and brand art.** Every button icon and the brand bar can be swapped per background, with a click-to-edit overlay that shows the real title screen.
 - **Menu music.** Assign a looping track to any background — OGG, WAV, or the audio ripped straight out of any MP4/M4A (pick the video file itself and nDM extracts the AAC once). The MP4's own audio plays when no track is assigned.
 - **Import backgrounds from YouTube.** Paste a link and nDM downloads it as an MP4 background (up to 10 minutes, up to 1440p), free and key-less via yt-dlp's official binaries, fetched once on first use.
-- **The Skin Hub.** Share skins as 8-character codes, browse community uploads with favorites and categories, and submit your own for review — all without an account. (Backend scaffolded; launching soon.)
+- **The Skin Hub.** Share skins as 8-character codes, browse community uploads with favorites and categories, and submit your own for review — all without an account. (Backend ready to deploy; uploads queue locally and go live the moment it's up.)
+- **One-click self-update.** When a newer release exists, the title screen shows an update pill; click it and the mod downloads the new jar straight into your mods folder and cleans up the old one at exit. Restart once and you're current — no manual download.
 - **Skins.** Export any background with all its icons, fonts (the actual font files), music, labels, positions, and layout as one zip. Import someone else's with one click. The carousel previews each skin as a full miniature title screen, not just a wallpaper thumbnail.
 - **Shuffle mode.** One toggle and you get a different background every launch.
 - **A real mods screen built in.** Searchable, filterable mod list with icons, descriptions, and enable/disable per mod, even without ModMenu installed.
@@ -36,7 +37,7 @@ nDM's position: MIT licensed and fully open, one self-contained jar, native MP4 
 ## Install
 
 1. Fabric Loader 0.15+ with Fabric API on Minecraft 1.21.11.
-2. Drop `nDM-1.2.0+1.21.11.jar` into your mods folder.
+2. Drop `nDM-1.5.0+1.21.11.jar` into your mods folder.
 3. Launch. The default grass setup appears on the title screen. Open Options, then the Backgrounds button (bottom left) to start customizing.
 
 Adding a background: click the + slot in the carousel and pick a .png, .jpg, .gif, or .mp4. MP4s do a one-time "bake" with a progress readout, then play instantly forever after (the cache lives next to your backgrounds in `config/nonprofit-backgrounds/.video-cache`).

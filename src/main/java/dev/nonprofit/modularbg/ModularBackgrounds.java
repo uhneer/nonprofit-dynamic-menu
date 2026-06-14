@@ -32,6 +32,8 @@ public final class ModularBackgrounds implements ClientModInitializer {
         IconStore.init();
         FontStore.init();
         NonprofitMusic.init();
+        dev.nonprofit.modularbg.background.UpdateChecker.checkAsync();   // notify if a newer release exists
+        dev.nonprofit.modularbg.background.SkinHub.pollAsync();          // submit queued + resolve pending uploads
 
         // Options → Backgrounds button → the carousel (preview/select/import + icons/fonts/music).
         ScreenEvents.AFTER_INIT.register((c, screen, sw, sh) -> {

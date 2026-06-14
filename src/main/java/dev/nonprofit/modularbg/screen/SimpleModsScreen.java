@@ -271,12 +271,14 @@ public class SimpleModsScreen extends Screen {
         }
     }
 
+    /** ids whose enable/disable is deferred to game exit (a loaded jar the JVM has locked). */
+    private static final Set<String> queued = new HashSet<>();
+
     private void toggle(Entry e) {
         try {
-            // Clicking again on a queued-at-exit disable cancels it.
+            // Clicking again on a queued-at-exit toggle cancels it.
             if (queued.contains(e.id())) {
-                String j = e.jar() == null ? "" : e.jar().toString();
-                synchronized (SimpleModsScreen.class) { exitRenames.removeIf(r -> r[0].equals(j)); }
+                if (e.jar() != null) dev.nonprofit.modularbg.background.ExitOps.cancelFor(e.jar());
                 queued.remove(e.id());
                 pending.remove(e.id());
                 scan();
@@ -290,9 +292,9 @@ public class SimpleModsScreen extends Screen {
                     Files.move(e.jar(), to);
                 } catch (Throwable locked) {
                     // Windows: the JVM holds loaded jars open, so the rename fails with a sharing
-                    // violation. Queue it to run right AFTER the game process exits instead — this
-                    // is what makes Disable actually work standalone on Windows.
-                    scheduleExitRename(e.jar(), to);
+                    // violation. Defer it to run right AFTER the game exits — this is what makes
+                    // Disable actually work standalone on Windows.
+                    dev.nonprofit.modularbg.background.ExitOps.scheduleMove(e.jar(), to);
                     queued.add(e.id());
                 }
             } else {
@@ -304,38 +306,6 @@ public class SimpleModsScreen extends Screen {
         } catch (Throwable t) {
             ModularBackgrounds.LOGGER.warn("[Mods] toggle failed for {}", e.id(), t);
         }
-    }
-
-    // ── deferred renames for jars the running JVM has locked (Windows) ──────────────────────
-    private static final List<String[]> exitRenames = new ArrayList<>();
-    private static final Set<String> queued = new HashSet<>();   // ids renamed at exit
-    private static boolean hookInstalled = false;
-
-    private static synchronized void scheduleExitRename(Path from, Path to) {
-        exitRenames.add(new String[]{ from.toString(), to.toString() });
-        if (hookInstalled) return;
-        hookInstalled = true;
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            try {
-                boolean win = System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
-                if (win) {
-                    // A detached batch file waits for the JVM to die, then renames and self-deletes.
-                    StringBuilder sb = new StringBuilder("@echo off\r\ntimeout /t 2 /nobreak >nul\r\n");
-                    for (String[] r : exitRenames)
-                        sb.append("move /Y \"").append(r[0]).append("\" \"").append(r[1]).append("\"\r\n");
-                    sb.append("del \"%~f0\"\r\n");
-                    Path bat = Files.createTempFile("ndm-mod-toggle", ".bat");
-                    Files.write(bat, sb.toString().getBytes(java.nio.charset.StandardCharsets.US_ASCII));
-                    new ProcessBuilder("cmd", "/c", "start", "", "/min", bat.toString()).start();
-                } else {
-                    for (String[] r : exitRenames)                 // POSIX renames open files fine
-                        Files.move(Path.of(r[0]), Path.of(r[1]),
-                                java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-                }
-            } catch (Throwable t) {
-                ModularBackgrounds.LOGGER.warn("[Mods] exit rename failed", t);
-            }
-        }, "ndm-mod-toggle"));
     }
 
     private void barScrollTo(double my) {

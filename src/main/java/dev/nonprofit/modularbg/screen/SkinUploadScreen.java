@@ -57,11 +57,16 @@ public class SkinUploadScreen extends Screen {
         if (name.isEmpty()) { error = "give your skin a name first"; return; }
         if (picked.isEmpty()) { error = "pick at least one category"; return; }
         try {
-            java.nio.file.Files.createDirectories(SkinDatabaseScreen.uploadsDir());
-            String dest = SkinDatabaseScreen.uploadsDir()
-                    .resolve(IconStore.keyFor(bgName) + ".zip").toString();
-            if (!BackgroundPackage.export(bgName, dest)) { error = "could not package the skin (see log)"; return; }
-            SkinDatabaseScreen.recordUpload(bgName, name, new ArrayList<>(picked));
+            java.nio.file.Path uploads = dev.nonprofit.modularbg.background.SkinHub.uploadsDir();
+            java.nio.file.Files.createDirectories(uploads);
+            java.nio.file.Path zip = uploads.resolve(IconStore.keyFor(bgName) + ".zip");
+            if (!BackgroundPackage.export(bgName, zip.toString())) {
+                error = "could not package the skin (see log)";
+                return;
+            }
+            // Records locally as pending and submits to the hub now (or queues for when it's live).
+            dev.nonprofit.modularbg.background.SkinHub.submit(
+                    bgName, name, new ArrayList<>(picked), zip, s -> { /* shown back on the hub screen */ });
             this.close();
         } catch (Throwable t) {
             ModularBackgrounds.LOGGER.warn("[SkinHub] upload failed", t);
